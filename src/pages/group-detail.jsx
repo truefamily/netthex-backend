@@ -52,6 +52,13 @@ function isInvitationExpired(value) {
   return date.getTime() <= Date.now()
 }
 
+function getStableOnlineState(id, threshold = 0.5) {
+  if (!id) return false
+
+  const hash = [...String(id)].reduce((total, character) => total + character.charCodeAt(0), 0)
+  return (hash % 100) / 100 >= threshold
+}
+
 function createDemoImageDataUrl(label, startColor, endColor) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
@@ -403,7 +410,7 @@ export default function GroupDetail() {
       if (!slug) return
 
       // D'abord, chercher dans le contexte
-      const foundGroup = Object.entries(groups).find(([_, g]) => g?.slug === slug)
+      const foundGroup = Object.entries(groups).find(([, g]) => g?.slug === slug)
       if (foundGroup) {
         const [id, groupData] = foundGroup
         setGroupId(id)
@@ -448,7 +455,7 @@ export default function GroupDetail() {
         const updated = { ...prev }
         allMemberIds.forEach(id => {
           if (!updated.hasOwnProperty(id)) {
-            updated[id] = Math.random() > 0.4 // Plus de probabilité d'être en ligne
+            updated[id] = getStableOnlineState(id, 0.4)
           }
         })
         return updated
@@ -461,7 +468,7 @@ export default function GroupDetail() {
     if (!groupId || !currentUser?.uid) return
 
     try {
-      const socket = initSocket(currentUser.uid)
+      initSocket(currentUser.uid)
       
       const unsubscribe = onGroupMessagesCount((data) => {
         if (data.groupId === groupId) {
@@ -620,7 +627,7 @@ export default function GroupDetail() {
         id: group.adminId,
         name: group.adminName || 'Administrateur',
         role: 'Admin',
-        isOnline: memberOnlineStatus[group.adminId] !== undefined ? memberOnlineStatus[group.adminId] : Math.random() > 0.5,
+        isOnline: memberOnlineStatus[group.adminId] !== undefined ? memberOnlineStatus[group.adminId] : getStableOnlineState(group.adminId, 0.5),
       })
     }
 
@@ -630,7 +637,7 @@ export default function GroupDetail() {
           id: memberId,
           name: `Membre ${index + 1}`,
           role: 'Membre',
-          isOnline: memberOnlineStatus[memberId] !== undefined ? memberOnlineStatus[memberId] : Math.random() > 0.3,
+          isOnline: memberOnlineStatus[memberId] !== undefined ? memberOnlineStatus[memberId] : getStableOnlineState(memberId, 0.3),
         })
       }
     })
@@ -641,7 +648,7 @@ export default function GroupDetail() {
           id: post.authorId,
           name: post.authorName || 'Membre',
           role: 'Contributeur',
-          isOnline: memberOnlineStatus[post.authorId] !== undefined ? memberOnlineStatus[post.authorId] : Math.random() > 0.6,
+          isOnline: memberOnlineStatus[post.authorId] !== undefined ? memberOnlineStatus[post.authorId] : getStableOnlineState(post.authorId, 0.6),
         })
       }
     })
@@ -652,7 +659,7 @@ export default function GroupDetail() {
           id: message.authorId,
           name: message.authorName || 'Membre',
           role: 'Actif',
-          isOnline: memberOnlineStatus[message.authorId] !== undefined ? memberOnlineStatus[message.authorId] : Math.random() > 0.4,
+          isOnline: memberOnlineStatus[message.authorId] !== undefined ? memberOnlineStatus[message.authorId] : getStableOnlineState(message.authorId, 0.4),
         })
       }
     })
@@ -703,17 +710,7 @@ export default function GroupDetail() {
     ).length
   }, [group])
 
-  const storyMembers = useMemo(() => members.slice(0, 6), [members])
   const quickContacts = useMemo(() => members.slice(0, 5), [members])
-  const joinRequests = useMemo(
-    () =>
-      inviteableContacts.slice(0, 2).map((contact, index) => ({
-        ...contact,
-        note: index === 0 ? 'souhaite rejoindre la conversation' : 'veut acceder au feed prive',
-      })),
-    [inviteableContacts]
-  )
-  const suggestions = useMemo(() => inviteableContacts.slice(2, 7), [inviteableContacts])
   const onlineMembers = useMemo(() => members.filter((member) => member.isOnline).slice(0, 4), [members])
   const groupLocation = group?.createdAt ? `Lance le ${formatFullDate(group.createdAt)}` : 'Communaute Netthex'
   const leftNavItems = [
@@ -838,12 +835,7 @@ export default function GroupDetail() {
     }
   }
 
-  const handleStartCall = (type) => {
-    alert(`📞 ${type === 'voice' ? 'Appel audio' : 'Appel vidéo'} - Fonctionnalité en développement`)
-  }
-
   const handleStartPrivateChat = (member) => {
-    setSelectedMemberForChat(member)
     alert(`💬 Discussion avec ${member.name} - Fonctionnalité en développement`)
   }
 

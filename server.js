@@ -1241,6 +1241,17 @@ app.delete('/api/notifications/:userId', async (req, res) => {
   }
 })
 
+app.get('/', (req, res) => {
+  res.send('🚀 Netthex backend is running');
+});
+
+app.get('/api', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'Netthex API active 🚀'
+  });
+});
+
 // Endpoint de santé
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Serveur Socket.io actif' })
