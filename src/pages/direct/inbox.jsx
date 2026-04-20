@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import Navbar from '../../components/Navbar'
 import { useAuth } from '../../context/AuthContext'
 import { useGroups } from '../../context/GroupContext'
 import {
@@ -504,8 +503,6 @@ export default function Inbox() {
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      <Navbar />
-
       <div className="w-full px-0 py-0">
         <div className="grid gap-0 xl:grid-cols-[360px_1fr]">
           <aside className="overflow-hidden rounded-none border border-slate-200 bg-white shadow-none">

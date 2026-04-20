@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Navbar from '../../components/Navbar'
 import { useNotifications } from '../../context/NotificationContext'
 import { useInvitationResponse } from '../../hooks/useInvitationResponse'
 
@@ -78,8 +77,6 @@ export default function InvitationsPage() {
 
   return (
     <div className="min-h-screen bg-[#eef2f7]">
-      <Navbar />
-
       <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         <section className="relative overflow-hidden rounded-[36px] border border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.20),_transparent_28%),linear-gradient(135deg,#ffffff_0%,#f8fbff_38%,#eef6ff_100%)] p-6 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-8 lg:p-10">
           <div className="absolute right-0 top-0 h-52 w-52 rounded-full bg-sky-300/20 blur-3xl" />

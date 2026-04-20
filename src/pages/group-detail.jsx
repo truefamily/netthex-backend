@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import Navbar from '../components/Navbar'
 import ChatBox from '../components/ChatBox'
 import PostCard from '../components/PostCard'
 import { useGroups } from '../context/GroupContext'
@@ -467,18 +466,31 @@ export default function GroupDetail() {
   useEffect(() => {
     if (!groupId || !currentUser?.uid) return
 
-    try {
-      initSocket(currentUser.uid)
-      
-      const unsubscribe = onGroupMessagesCount((data) => {
-        if (data.groupId === groupId) {
-          setTotalMessages(data.count)
-        }
-      })
+    let isCancelled = false
+    let unsubscribe = null
 
-      return unsubscribe
-    } catch (error) {
-      console.error('Erreur socket.io:', error)
+    ;(async () => {
+      try {
+        await initSocket(currentUser.uid)
+
+        if (isCancelled) return
+
+        unsubscribe = onGroupMessagesCount((data) => {
+          if (data.groupId === groupId) {
+            setTotalMessages(data.count)
+          }
+        })
+      } catch (error) {
+        console.error('Erreur socket.io:', error)
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+
+      if (unsubscribe) {
+        unsubscribe()
+      }
     }
   }, [groupId, currentUser?.uid])
 
@@ -1140,7 +1152,6 @@ export default function GroupDetail() {
   if (groupsLoading) {
     return (
       <div className="min-h-screen bg-[#eef2f7]">
-        <Navbar />
         <div className="flex min-h-screen items-center justify-center px-4">
           <div className="rounded-[32px] border border-slate-200 bg-white px-8 py-10 text-center shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
             <div className="mb-4 text-4xl">⏳</div>
@@ -1154,7 +1165,6 @@ export default function GroupDetail() {
   if (!group) {
     return (
       <div className="min-h-screen bg-[#eef2f7]">
-        <Navbar />
         <div className="flex min-h-screen items-center justify-center px-4">
           <div className="rounded-[32px] border border-slate-200 bg-white px-8 py-10 text-center shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
             <div className="mb-4 text-4xl">😅</div>
@@ -1167,8 +1177,6 @@ export default function GroupDetail() {
 
   return (
     <div className="min-h-screen bg-[#eef2f7] text-slate-900">
-      <Navbar />
-
       <div className="w-full px-0 pt-0 pb-8">
         <div className="overflow-hidden border border-white/70 bg-[#fcfcfe] shadow-[0_35px_120px_rgba(15,23,42,0.10)]">
           <div className="grid xl:h-[calc(100vh-58px)] xl:grid-cols-[290px_minmax(0,1fr)_310px]">

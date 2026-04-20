@@ -97,16 +97,29 @@ export default function ChatBox({ groupId, theme = 'dark' }) {
   useEffect(() => {
     if (!currentUser?.uid || loading) return
 
-    try {
-      const socket = initSocket(currentUser.uid)
-      setIsConnected(true)
-      joinGroup(groupId, currentUser.uid)
+    let isCancelled = false
+    let hasJoinedGroup = false
 
-      return () => {
+    ;(async () => {
+      try {
+        await initSocket(currentUser.uid)
+
+        if (isCancelled) return
+
+        setIsConnected(true)
+        joinGroup(groupId, currentUser.uid)
+        hasJoinedGroup = true
+      } catch (error) {
+        console.error('Erreur socket.io:', error)
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+
+      if (hasJoinedGroup) {
         leaveGroup(groupId, currentUser.uid)
       }
-    } catch (error) {
-      console.error('Erreur socket.io:', error)
     }
   }, [currentUser?.uid, groupId, loading])
 

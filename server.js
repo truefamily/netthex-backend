@@ -7,26 +7,54 @@ import admin from 'firebase-admin'
 
 dotenv.config()
 
+const allowedOrigins = new Set(
+  [
+    ...(process.env.CLIENT_URL || '')
+      .split(',')
+      .map((origin) => origin.trim()),
+    'http://localhost:5173',
+    'http://localhost:5174',
+  ].filter(Boolean),
+)
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true)
+      return
+    }
+
+    callback(new Error('Origin non autorisee par CORS.'))
+  },
+  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  credentials: true,
+}
+
 // Initialiser Express et Socket.io
 const app = express()
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-  },
+  cors: corsOptions,
 })
 
 // Middleware
-app.use(cors())
+app.use(cors(corsOptions))
 app.use(express.json())
 
 // Initialiser Firebase Admin
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
-  })
+  try {
+    // Essayer d'utiliser GOOGLE_APPLICATION_CREDENTIALS en premier
+    admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
+      databaseURL: process.env.FIREBASE_DATABASE_URL,
+    })
+    console.log('✓ Firebase Admin initialisé avec service account')
+  } catch (error) {
+    console.error('⚠ Impossible d\'initialiser Firebase Admin:', error.message)
+    console.error('Assurez-vous que GOOGLE_APPLICATION_CREDENTIALS est configuré')
+    process.exit(1)
+  }
 }
 
 const db = admin.database()
@@ -37,6 +65,26 @@ const typingUsers = {} // { groupId: { userId: { userName, timeout } } }
 
 const buildDirectConversationId = (firstUserId, secondUserId) =>
   [firstUserId, secondUserId].sort().join('__')
+
+const sanitizeInput = (input, maxLength = 500) => {
+  if (typeof input !== 'string') return ''
+  return input
+    .trim()
+    .slice(0, maxLength)
+    .replace(/[<>"']/g, '') // Supprimer caractères potentiellement dangereux
+}
+
+const validateInput = (value, fieldName, maxLength = 500) => {
+  if (!value || typeof value !== 'string') {
+    throw new Error(`${fieldName} est requis et doit être une chaîne.`)
+  }
+  if (value.trim().length === 0) {
+    throw new Error(`${fieldName} ne peut pas être vide.`)
+  }
+  if (value.length > maxLength) {
+    throw new Error(`${fieldName} dépasse la longueur maximale (${maxLength} caractères).`)
+  }
+}
 
 const sanitizeProfile = (profile = {}, fallbackUid = '') => ({
   uid: profile.uid || fallbackUid,
@@ -92,6 +140,26 @@ const authenticateRequest = async (req, res) => {
   }
 }
 
+const authorizeUserAccess = async (
+  req,
+  res,
+  expectedUserId,
+  message = 'Acces refuse a cette ressource.',
+) => {
+  const decodedToken = await authenticateRequest(req, res)
+
+  if (!decodedToken) {
+    return null
+  }
+
+  if (expectedUserId && decodedToken.uid !== expectedUserId) {
+    sendApiError(res, 403, message)
+    return null
+  }
+
+  return decodedToken
+}
+
 const isGroupMember = (group, userId) =>
   Boolean(group?.adminId === userId || group?.members?.[userId])
 
@@ -103,6 +171,27 @@ const isExpiredTimestamp = (value) => {
 
   return date.getTime() <= Date.now()
 }
+
+io.use(async (socket, next) => {
+  const token = socket.handshake.auth?.token
+
+  if (!token) {
+    next(new Error('Token Firebase requis.'))
+    return
+  }
+
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token)
+    socket.data.userId = decodedToken.uid
+    socket.data.userName = decodedToken.name || 'Utilisateur'
+    next()
+  } catch (error) {
+    console.error('Erreur verification token Socket.io:', error)
+    next(new Error('Token Firebase invalide ou expire.'))
+  }
+})
+
+
 
 const cleanupExpiredInvitationArtifacts = async (groupId, group) => {
   const updates = {}
@@ -223,24 +312,27 @@ app.get('/api/messages/groups/:groupId', async (req, res) => {
 app.post('/api/messages/groups/:groupId', async (req, res) => {
   const { groupId } = req.params
   const { authorId, authorName, content } = req.body || {}
-  const trimmedContent = content?.trim()
-
-  if (!groupId) {
-    return sendApiError(res, 400, 'groupId requis.')
-  }
-
-  if (!authorId || !trimmedContent) {
-    return sendApiError(res, 400, 'authorId et content sont requis.')
-  }
-
-  const decodedToken = await authenticateRequest(req, res)
-  if (!decodedToken) return
-
-  if (authorId !== decodedToken.uid) {
-    return sendApiError(res, 403, 'authorId ne correspond pas a l utilisateur authentifie.')
-  }
 
   try {
+    // Validation des entrées
+    if (!groupId) {
+      return sendApiError(res, 400, 'groupId requis.')
+    }
+
+    if (!authorId) {
+      return sendApiError(res, 400, 'authorId est requis.')
+    }
+
+    validateInput(content, 'Contenu du message', 1000)
+    const sanitizedContent = sanitizeInput(content, 1000)
+
+    const decodedToken = await authenticateRequest(req, res)
+    if (!decodedToken) return
+
+    if (authorId !== decodedToken.uid) {
+      return sendApiError(res, 403, 'authorId ne correspond pas a l utilisateur authentifie.')
+    }
+
     const groupSnapshot = await getGroupSnapshot(groupId)
 
     if (!groupSnapshot.exists()) {
@@ -257,8 +349,8 @@ app.post('/api/messages/groups/:groupId', async (req, res) => {
     const newMessageRef = db.ref(`groups/${groupId}/messages`).push()
     const message = {
       authorId: decodedToken.uid,
-      authorName: authorName || decodedToken.name || 'Utilisateur',
-      content: trimmedContent,
+      authorName: sanitizeInput(authorName || decodedToken.name || 'Utilisateur', 100),
+      content: sanitizedContent,
       timestamp,
     }
 
@@ -370,28 +462,27 @@ app.post('/api/messages/direct', async (req, res) => {
     recipientProfile,
     content,
   } = req.body || {}
-  const trimmedContent = content?.trim()
-
-  if (!senderId || !recipientId || !trimmedContent) {
-    return sendApiError(
-      res,
-      400,
-      'senderId, recipientId et content sont requis.',
-    )
-  }
-
-  if (senderId === recipientId) {
-    return sendApiError(res, 400, 'Une conversation privee requiert deux utilisateurs differents.')
-  }
-
-  const decodedToken = await authenticateRequest(req, res)
-  if (!decodedToken) return
-
-  if (senderId !== decodedToken.uid) {
-    return sendApiError(res, 403, 'senderId ne correspond pas a l utilisateur authentifie.')
-  }
 
   try {
+    // Validation des entrées
+    if (!senderId || !recipientId) {
+      return sendApiError(res, 400, 'senderId et recipientId sont requis.')
+    }
+
+    validateInput(content, 'Contenu du message', 1000)
+    const sanitizedContent = sanitizeInput(content, 1000)
+
+    if (senderId === recipientId) {
+      return sendApiError(res, 400, 'Une conversation privee requiert deux utilisateurs differents.')
+    }
+
+    const decodedToken = await authenticateRequest(req, res)
+    if (!decodedToken) return
+
+    if (senderId !== decodedToken.uid) {
+      return sendApiError(res, 403, 'senderId ne correspond pas a l utilisateur authentifie.')
+    }
+
     const directConversationId =
       conversationId || buildDirectConversationId(senderId, recipientId)
     const timestamp = new Date().toISOString()
@@ -407,7 +498,7 @@ app.post('/api/messages/direct', async (req, res) => {
       createdAt: existingConversation.createdAt || timestamp,
       updatedAt: timestamp,
       lastMessageAt: timestamp,
-      lastMessagePreview: trimmedContent,
+      lastMessagePreview: sanitizedContent.substring(0, 100),
       lastMessageAuthorId: senderId,
       totalMessages: Number(existingConversation.totalMessages || 0) + 1,
       participants: {
@@ -425,8 +516,8 @@ app.post('/api/messages/direct', async (req, res) => {
     const newMessageRef = db.ref(`directMessages/${directConversationId}`).push()
     const message = {
       authorId: decodedToken.uid,
-      authorName: currentSenderProfile.username || decodedToken.name || 'Utilisateur',
-      content: trimmedContent,
+      authorName: sanitizeInput(currentSenderProfile.username || decodedToken.name || 'Utilisateur', 100),
+      content: sanitizedContent,
       timestamp,
     }
 
@@ -497,24 +588,26 @@ app.get('/api/groups/:groupId/posts/:postId/discussion', async (req, res) => {
 app.post('/api/groups/:groupId/posts/:postId/discussion', async (req, res) => {
   const { groupId, postId } = req.params
   const { authorId, authorName, content } = req.body || {}
-  const trimmedContent = content?.trim()
-
-  if (!groupId || !postId) {
-    return sendApiError(res, 400, 'groupId et postId sont requis.')
-  }
-
-  if (!authorId || !trimmedContent) {
-    return sendApiError(res, 400, 'authorId et content sont requis.')
-  }
-
-  const decodedToken = await authenticateRequest(req, res)
-  if (!decodedToken) return
-
-  if (authorId !== decodedToken.uid) {
-    return sendApiError(res, 403, 'authorId ne correspond pas a l utilisateur authentifie.')
-  }
 
   try {
+    if (!groupId || !postId) {
+      return sendApiError(res, 400, 'groupId et postId sont requis.')
+    }
+
+    if (!authorId) {
+      return sendApiError(res, 400, 'authorId est requis.')
+    }
+
+    validateInput(content, 'Contenu de la discussion', 1000)
+    const sanitizedContent = sanitizeInput(content, 1000)
+
+    const decodedToken = await authenticateRequest(req, res)
+    if (!decodedToken) return
+
+    if (authorId !== decodedToken.uid) {
+      return sendApiError(res, 403, 'authorId ne correspond pas a l utilisateur authentifie.')
+    }
+
     const [groupSnapshot, postSnapshot] = await Promise.all([
       getGroupSnapshot(groupId),
       getPostSnapshot(groupId, postId),
@@ -538,8 +631,8 @@ app.post('/api/groups/:groupId/posts/:postId/discussion', async (req, res) => {
     const discussionRef = db.ref(`groups/${groupId}/discussion/${postId}`).push()
     const discussionEntry = {
       authorId: decodedToken.uid,
-      authorName: authorName || decodedToken.name || 'Utilisateur',
-      content: trimmedContent,
+      authorName: sanitizeInput(authorName || decodedToken.name || 'Utilisateur', 100),
+      content: sanitizedContent,
       createdAt,
     }
 
@@ -739,48 +832,62 @@ app.post('/api/invitations/:code/respond', async (req, res) => {
 
 // Événements de connexion Socket.io
 io.on('connection', (socket) => {
-  const userId = socket.handshake.auth.userId
-
-  if (!userId) {
-    console.warn('❌ Connexion sans userId')
-    socket.disconnect()
-    return
-  }
+  const userId = socket.data.userId
+  const defaultUserName = socket.data.userName || 'Utilisateur'
 
   console.log(`✅ Utilisateur connecté: ${userId} (Socket: ${socket.id})`)
 
   // Rejoindre un groupe
-  socket.on('group:join', async (data) => {
-    const { groupId, userId } = data
+  socket.on('group:join', async (data = {}) => {
+    const { groupId } = data
 
     if (!groupId) return
 
-    socket.join(groupId)
+    try {
+      const groupSnapshot = await getGroupSnapshot(groupId)
 
-    if (!groupUsers[groupId]) {
-      groupUsers[groupId] = {}
+      if (!groupSnapshot.exists()) {
+        socket.emit('error', { message: 'Groupe introuvable.' })
+        return
+      }
+
+      const group = groupSnapshot.val() || {}
+
+      if (!isGroupMember(group, userId)) {
+        socket.emit('error', { message: 'Acces refuse a ce groupe.' })
+        return
+      }
+
+      socket.join(groupId)
+
+      if (!groupUsers[groupId]) {
+        groupUsers[groupId] = {}
+      }
+
+      groupUsers[groupId][userId] = {
+        socketId: socket.id,
+        userName: data.userName || defaultUserName,
+      }
+
+      console.log(`👥 ${userId} a rejoint le groupe ${groupId}`)
+
+      // Broadcaster aux autres utilisateurs du groupe
+      io.to(groupId).emit('group:members', {
+        groupId,
+        onlineUsers: Object.entries(groupUsers[groupId] || {}).map(([id, user]) => ({
+          userId: id,
+          userName: user.userName,
+        })),
+      })
+    } catch (error) {
+      console.error('Erreur lors du group:join:', error)
+      socket.emit('error', { message: 'Impossible de rejoindre ce groupe.' })
     }
-
-    groupUsers[groupId][userId] = {
-      socketId: socket.id,
-      userName: data.userName || 'Utilisateur',
-    }
-
-    console.log(`👥 ${userId} a rejoint le groupe ${groupId}`)
-
-    // Broadcaster aux autres utilisateurs du groupe
-    io.to(groupId).emit('group:members', {
-      groupId,
-      onlineUsers: Object.entries(groupUsers[groupId] || {}).map(([id, user]) => ({
-        userId: id,
-        userName: user.userName,
-      })),
-    })
   })
 
   // Quitter un groupe
-  socket.on('group:leave', async (data) => {
-    const { groupId, userId } = data
+  socket.on('group:leave', async (data = {}) => {
+    const { groupId } = data
 
     if (!groupId || !groupUsers[groupId]) return
 
@@ -801,28 +908,50 @@ io.on('connection', (socket) => {
   })
 
   // Recevoir et broadcaster un message
-  socket.on('message:send', async (data) => {
-    const { groupId, content, authorId, authorName, timestamp } = data
+  socket.on('message:send', async (data = {}) => {
+    const { groupId, content, authorName, timestamp } = data
+    const trimmedContent = content?.trim()
 
-    if (!groupId || !content) {
+    if (!groupId || !trimmedContent) {
       console.warn('⚠️ Données de message incomplètes')
       return
     }
 
     try {
+      const groupSnapshot = await getGroupSnapshot(groupId)
+
+      if (!groupSnapshot.exists()) {
+        socket.emit('error', { message: 'Groupe introuvable.' })
+        return
+      }
+
+      const group = groupSnapshot.val() || {}
+
+      if (!isGroupMember(group, userId)) {
+        socket.emit('error', { message: 'Acces refuse a ce groupe.' })
+        return
+      }
+
       // Créer un ID unique pour le message
-      const messageId = `${timestamp}-${authorId}`
+      const safeTimestamp = timestamp || new Date().toISOString()
+      const safeAuthorName =
+        authorName ||
+        groupUsers[groupId]?.[userId]?.userName ||
+        defaultUserName
+      const messageId = `${safeTimestamp}-${userId}`
 
       const newMessage = {
         id: messageId,
         groupId,
-        content,
-        authorId,
-        authorName,
-        timestamp,
+        content: trimmedContent,
+        authorId: userId,
+        authorName: safeAuthorName,
+        timestamp: safeTimestamp,
       }
 
-      console.log(`💬 Nouveau message dans ${groupId} de ${authorName}: ${content.substring(0, 50)}...`)
+      console.log(
+        `💬 Nouveau message dans ${groupId} de ${safeAuthorName}: ${trimmedContent.substring(0, 50)}...`,
+      )
 
       // Broadcaster le message à tous les utilisateurs du groupe (en temps réel)
       io.to(groupId).emit('message:new', newMessage)
@@ -844,8 +973,8 @@ io.on('connection', (socket) => {
   })
 
   // Gérer l'indicateur de saisie
-  socket.on('typing:send', (data) => {
-    const { groupId, userId, userName, isTyping } = data
+  socket.on('typing:send', (data = {}) => {
+    const { groupId, userName, isTyping } = data
 
     if (!groupId) return
 
@@ -860,7 +989,7 @@ io.on('connection', (socket) => {
       }
 
       typingUsers[groupId][userId] = {
-        userName,
+        userName: userName || groupUsers[groupId]?.[userId]?.userName || defaultUserName,
         timeout: setTimeout(() => {
           delete typingUsers[groupId][userId]
           io.to(groupId).emit('typing:update', {
@@ -1009,6 +1138,21 @@ app.delete('/api/groups/:groupId/posts/:postId/like', async (req, res) => {
   }
 
   try {
+    const groupSnapshot = await getGroupSnapshot(groupId)
+    if (!groupSnapshot.exists()) {
+      return sendApiError(res, 404, 'Groupe introuvable.')
+    }
+
+    const group = groupSnapshot.val() || {}
+    if (!isGroupMember(group, decodedToken.uid)) {
+      return sendApiError(res, 403, 'Seuls les membres peuvent retirer un like.')
+    }
+
+    const postSnapshot = await getPostSnapshot(groupId, postId)
+    if (!postSnapshot.exists()) {
+      return sendApiError(res, 404, 'Post introuvable.')
+    }
+
     // Retirer le like
     await db.ref(`groups/${groupId}/posts/${postId}/likes/${userId}`).remove()
 
@@ -1041,11 +1185,24 @@ app.get('/api/groups/:groupId/posts/:postId/likes', async (req, res) => {
     return sendApiError(res, 400, 'groupId et postId sont requis.')
   }
 
+  const decodedToken = await authenticateRequest(req, res)
+  if (!decodedToken) return
+
   try {
     // Vérifier que le groupe existe
     const groupSnapshot = await getGroupSnapshot(groupId)
     if (!groupSnapshot.exists()) {
       return sendApiError(res, 404, 'Groupe introuvable.')
+    }
+
+    const group = groupSnapshot.val() || {}
+    if (!isGroupMember(group, decodedToken.uid)) {
+      return sendApiError(res, 403, 'Seuls les membres peuvent consulter les likes.')
+    }
+
+    const postSnapshot = await getPostSnapshot(groupId, postId)
+    if (!postSnapshot.exists()) {
+      return sendApiError(res, 404, 'Post introuvable.')
     }
 
     // Récupérer les likes du post
@@ -1074,7 +1231,16 @@ app.get('/api/groups/:groupId/posts/:postId/likes', async (req, res) => {
 app.get('/api/notifications/:userId', async (req, res) => {
   try {
     const { userId } = req.params
-    const { limit = 20 } = req.query
+    const decodedToken = await authorizeUserAccess(
+      req,
+      res,
+      userId,
+      'Acces refuse a ces notifications.',
+    )
+    if (!decodedToken) return
+
+    const parsedLimit = Number.parseInt(req.query.limit ?? '20', 10)
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20
 
     const snapshot = await db.ref(`notifications/${userId}`).get()
 
@@ -1086,7 +1252,7 @@ app.get('/api/notifications/:userId', async (req, res) => {
     // Trier par date décroissante
     const sorted = Object.entries(notifications)
       .sort(([, a], [, b]) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, parseInt(limit))
+      .slice(0, limit)
 
     res.json({
       notifications: Object.fromEntries(sorted),
@@ -1104,6 +1270,13 @@ app.get('/api/notifications/:userId', async (req, res) => {
 app.get('/api/notifications/:userId/unread', async (req, res) => {
   try {
     const { userId } = req.params
+    const decodedToken = await authorizeUserAccess(
+      req,
+      res,
+      userId,
+      'Acces refuse a ces notifications.',
+    )
+    if (!decodedToken) return
 
     const snapshot = await db.ref(`notifications/${userId}`).get()
 
@@ -1136,20 +1309,26 @@ app.get('/api/notifications/:userId/unread', async (req, res) => {
 app.post('/api/notifications/:userId', async (req, res) => {
   try {
     const { userId } = req.params
-    const notificationData = req.body
+    const decodedToken = await authenticateRequest(req, res)
+    if (!decodedToken) return
+
+    const notificationData = req.body || {}
+    const createdAt = new Date().toISOString()
 
     const newNotifRef = db.ref(`notifications/${userId}`).push()
 
     await newNotifRef.set({
       ...notificationData,
-      createdAt: new Date().toISOString(),
+      createdAt,
+      createdBy: decodedToken.uid,
       read: false,
     })
 
-    res.json({
+    res.status(201).json({
       id: newNotifRef.key,
       ...notificationData,
-      createdAt: new Date().toISOString(),
+      createdAt,
+      createdBy: decodedToken.uid,
       read: false,
     })
   } catch (error) {
@@ -1165,6 +1344,13 @@ app.post('/api/notifications/:userId', async (req, res) => {
 app.patch('/api/notifications/:userId/:notificationId/read', async (req, res) => {
   try {
     const { userId, notificationId } = req.params
+    const decodedToken = await authorizeUserAccess(
+      req,
+      res,
+      userId,
+      'Acces refuse a ces notifications.',
+    )
+    if (!decodedToken) return
 
     await db.ref(`notifications/${userId}/${notificationId}`).update({
       read: true,
@@ -1185,6 +1371,13 @@ app.patch('/api/notifications/:userId/:notificationId/read', async (req, res) =>
 app.patch('/api/notifications/:userId/read-all', async (req, res) => {
   try {
     const { userId } = req.params
+    const decodedToken = await authorizeUserAccess(
+      req,
+      res,
+      userId,
+      'Acces refuse a ces notifications.',
+    )
+    if (!decodedToken) return
 
     const snapshot = await db.ref(`notifications/${userId}`).get()
 
@@ -1214,6 +1407,13 @@ app.patch('/api/notifications/:userId/read-all', async (req, res) => {
 app.delete('/api/notifications/:userId/:notificationId', async (req, res) => {
   try {
     const { userId, notificationId } = req.params
+    const decodedToken = await authorizeUserAccess(
+      req,
+      res,
+      userId,
+      'Acces refuse a ces notifications.',
+    )
+    if (!decodedToken) return
 
     await db.ref(`notifications/${userId}/${notificationId}`).set(null)
 
@@ -1231,6 +1431,13 @@ app.delete('/api/notifications/:userId/:notificationId', async (req, res) => {
 app.delete('/api/notifications/:userId', async (req, res) => {
   try {
     const { userId } = req.params
+    const decodedToken = await authorizeUserAccess(
+      req,
+      res,
+      userId,
+      'Acces refuse a ces notifications.',
+    )
+    if (!decodedToken) return
 
     await db.ref(`notifications/${userId}`).set(null)
 

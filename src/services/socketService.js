@@ -1,9 +1,18 @@
 import { io } from 'socket.io-client'
+import { auth } from './firebaseConfig'
 
 let socket = null
 
-export const initSocket = (userId) => {
+export const initSocket = async (userId) => {
   if (socket) return socket
+
+  const currentUser = auth.currentUser
+
+  if (!currentUser || currentUser.uid !== userId) {
+    throw new Error('Utilisateur authentifie requis pour initialiser Socket.io.')
+  }
+
+  const token = await currentUser.getIdToken()
 
   // URL du serveur socket.io (en développement: localhost:3001)
   const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001'
@@ -11,6 +20,7 @@ export const initSocket = (userId) => {
   socket = io(socketUrl, {
     auth: {
       userId,
+      token,
     },
     reconnection: true,
     reconnectionDelay: 1000,

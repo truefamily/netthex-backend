@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { GroupProvider } from './context/GroupContext'
 import { NotificationProvider } from './context/NotificationContext'
 import NotificationToast from './components/NotificationToast'
+import MainLayout from './layouts/MainLayout'
 import './App.css'
 
 // Pages
@@ -21,7 +22,7 @@ const shouldRedirectToProfilePhotoSetup = (currentUser, userData) =>
   Boolean(currentUser) && isProfilePhotoSetupPending() && !userData?.avatar
 
 // Composant pour les routes protégées
-const ProtectedRoute = ({ children, allowPendingProfilePhoto = false }) => {
+const ProtectedRoute = ({ children, allowPendingProfilePhoto = false, layout = true }) => {
   const { currentUser, userData } = useAuth()
   const location = useLocation()
   const needsProfilePhoto = shouldRedirectToProfilePhotoSetup(currentUser, userData)
@@ -31,7 +32,16 @@ const ProtectedRoute = ({ children, allowPendingProfilePhoto = false }) => {
     return <Navigate to="/user/profile/photo" replace state={{ from: redirectTarget }} />
   }
 
-  return currentUser ? children : <Navigate to="/auth" replace state={{ from: location }} />
+  if (!currentUser) {
+    return <Navigate to="/auth" replace state={{ from: location }} />
+  }
+
+  // Utiliser MainLayout pour les pages protégées
+  if (layout) {
+    return <MainLayout>{children}</MainLayout>
+  }
+
+  return children
 }
 
 function AppRoutes() {

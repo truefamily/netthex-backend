@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import Navbar from '../components/Navbar'
 import { useAuth } from '../context/AuthContext'
 import { getInvitationByCodeApi, respondToInvitationCodeApi } from '../services/apiService'
 import {
@@ -128,8 +127,6 @@ export default function InvitePage() {
 
   return (
     <div className="min-h-screen bg-[#eef2f7]">
-      <Navbar />
-
       <main className="mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-5xl items-center px-4 py-8 sm:px-6 lg:px-8">
         <section className="relative w-full overflow-hidden rounded-[38px] border border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_26%),linear-gradient(135deg,#ffffff_0%,#f8fbff_52%,#edf6ff_100%)] p-6 shadow-[0_28px_80px_rgba(15,23,42,0.10)] sm:p-8 lg:p-10">
           <div className="absolute right-0 top-0 h-52 w-52 rounded-full bg-sky-300/20 blur-3xl" />

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { listenToGroups, updateGroup } from '../services/realtimeService'
 import { mockGroups } from '../data/mockGroups'
+import { useAuth } from './AuthContext'
 
 const GroupContext = createContext()
 
@@ -13,10 +14,19 @@ export const useGroups = () => {
 }
 
 export const GroupProvider = ({ children }) => {
+  const { currentUser } = useAuth()
   const [groups, setGroups] = useState({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!currentUser?.uid) {
+      setGroups({})
+      setLoading(false)
+      return undefined
+    }
+
+    setLoading(true)
+
     const unsubscribe = listenToGroups(
       (snapshot) => {
         const groupsData = snapshot.val()
@@ -31,7 +41,7 @@ export const GroupProvider = ({ children }) => {
     )
 
     return () => unsubscribe()
-  }, [])
+  }, [currentUser?.uid])
 
   const updateGroupDetails = async (groupId, updates) => {
     const previousGroup = groups[groupId]

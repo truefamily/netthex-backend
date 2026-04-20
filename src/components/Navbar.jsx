@@ -1,13 +1,12 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useRef, useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useGroups } from '../context/GroupContext'
-import { logOut } from '../services/authService'
 import NotificationBell from './NotificationBell'
-import { useState, useMemo, useRef, useEffect } from 'react'
+import MobileMenu from './MobileMenu'
 
-function Icon({ path, className = 'h-4 w-4' }) {
+function Icon({ path, className = 'h-5 w-5' }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className} aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden="true">
       <path d={path} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
@@ -18,7 +17,7 @@ function NetthexMark() {
     <svg
       viewBox="0 0 256 256"
       aria-hidden="true"
-      className="h-9 w-9"
+      className="h-8 w-8"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -35,22 +34,12 @@ function NetthexMark() {
 }
 
 export default function Navbar() {
-  const { userData } = useAuth()
   const { groups } = useGroups()
   const navigate = useNavigate()
-  const location = useLocation()
-  const [showMenu, setShowMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showResults, setShowResults] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const searchRef = useRef(null)
-
-  const navItems = [
-    { to: '/', label: 'Accueil', icon: 'M3 12h7V3H3v9Zm0 9h7v-7H3v7Zm11 0h7v-9h-7v9Zm0-18v7h7V3h-7Z' },
-    { to: '/mes-groupes', label: 'Mes groupes', icon: 'M4 6.5h16M6 4h12a2 2 0 0 1 2 2v11a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V6a2 2 0 0 1 2-2Zm2 5h8M8 13h5' },
-    { to: '/direct/inbox', label: 'Messages', icon: 'M4 7h16v10H4V7Zm0 0 8 6l8-6' },
-    { to: '/notifications/invitations', label: 'Invitations', icon: 'M4 7h16M6 5h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm0 3 6 4 6-4' },
-    { to: '/user/profile', label: 'Profil', icon: 'M12 12a4 4 0 1 0 0-8a4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0' },
-  ]
 
   // Logique de recherche globale
   const searchResults = useMemo(() => {
@@ -91,181 +80,133 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+
+
   const handleSearchSelect = (result) => {
     if (result.type === 'group') {
       navigate(`/group/${result.slug}`)
     }
     setSearchQuery('')
     setShowResults(false)
-  }
-
-  const handleLogout = async () => {
-    try {
-      await logOut()
-      navigate('/auth')
-    } catch (error) {
-      console.error('Erreur:', error)
-    }
+    setIsMobileMenuOpen(false)
   }
 
   return (
-    <nav className="sticky top-0 z-50 w-full px-0 py-0">
-      <div className="w-full">
-        <div className="relative overflow-visible border border-white/80 bg-white shadow-[0_14px_30px_rgba(15,23,42,0.05)]">
-          <div className="relative flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-5">
-            <div className="flex items-center gap-3">
-              <Link to="/" className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9f2ff] shadow-[0_8px_16px_rgba(15,23,42,0.04)]">
-                  <NetthexMark />
-                </div>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-                    Netthex
-                  </p>
-                </div>
-              </Link>
-            </div>
+    <>
+      {/* Navbar Desktop & Mobile */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+        <div className="flex items-center justify-between h-16 px-4 md:px-6 lg:ml-64 gap-4">
+          {/* Left: Hamburger (Mobile) / Logo (Desktop) */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Hamburger Button - Mobile only */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="lg:hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+              aria-label="Ouvrir le menu"
+            >
+              <Icon path={isMobileMenuOpen ? 'M18 6L6 18M6 6l12 12' : 'M4 7h16M4 12h16M4 17h16'} className="h-6 w-6" />
+            </button>
 
-            <div className="hidden lg:flex flex-1 justify-center px-4">
-              <div className="relative w-full max-w-sm" ref={searchRef}>
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs text-slate-300">⌕</span>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value)
-                    setShowResults(true)
-                  }}
-                  onFocus={() => setShowResults(true)}
-                  placeholder="Chercher des groupes..."
-                  className="w-full rounded-full border border-slate-200 bg-[#f8faff] py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-sky-300 focus:bg-white focus:ring-2 focus:ring-sky-100"
-                />
-                
-                {showResults && searchQuery.trim() && (
-                  <div className="absolute left-0 right-0 top-full z-[70] mt-3 max-h-[min(24rem,calc(100vh-7rem))] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.18)] ring-1 ring-slate-950/5">
-                    {searchResults.length > 0 ? (
-                      <div className="divide-y divide-slate-100">
-                        {searchResults.map((result) => (
-                          <button
-                            key={`${result.type}-${result.id}`}
-                            onClick={() => handleSearchSelect(result)}
-                            className="w-full px-4 py-3 text-left transition hover:bg-slate-50"
-                          >
-                            <div className="flex items-center gap-3">
-                              {result.avatar ? (
-                                <img
-                                  src={result.avatar}
-                                  alt={result.name}
-                                  className="h-10 w-10 rounded-lg object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-sky-100 to-sky-50 text-sm font-bold text-sky-600">
-                                  {result.name.charAt(0)}
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-slate-900 truncate">{result.name}</p>
-                                {result.description && (
-                                  <p className="text-xs text-slate-500 line-clamp-1">{result.description}</p>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
+            {/* Logo - Desktop only */}
+            <div className="hidden lg:flex items-center gap-3">
+              <NetthexMark />
+              <span className="text-lg font-bold text-slate-900">Netthex</span>
+            </div>
+          </div>
+
+          {/* Center: Recherche (visible sur md+) */}
+          <div ref={searchRef} className="hidden md:flex flex-1 max-w-md relative">
+            <div className="relative w-full">
+              <input
+                type="text"
+                placeholder="Chercher un groupe..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setShowResults(e.target.value.trim().length > 0)
+                }}
+                onFocus={() => setShowResults(searchQuery.trim().length > 0)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-900 placeholder-slate-500 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+              />
+              <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.5 5.5a7.5 7.5 0 0010.5 10.5Z" className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+
+              {/* Dropdown résultats */}
+              {showResults && searchResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-50">
+                  {searchResults.map((result) => (
+                    <button
+                      key={`${result.type}-${result.id}`}
+                      onClick={() => handleSearchSelect(result)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-b-0"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">{result.name}</p>
+                        <p className="text-xs text-slate-500 truncate">{result.description}</p>
                       </div>
-                    ) : (
-                      <div className="px-4 py-8 text-center text-sm text-slate-500">
-                        Aucun groupe trouvé
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-            <div className="hidden lg:flex items-center gap-1.5">
-              {navItems.map((item) => {
-                const isActive =
-                  item.to === '/'
-                    ? location.pathname === '/'
-                    : location.pathname.startsWith(item.to)
-
-                return (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition ${
-                      isActive
-                        ? 'bg-[#eaf3ff] text-sky-600'
-                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                    }`}
-                  >
-                    <Icon path={item.icon} className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </Link>
-                )
-              })}
-            </div>
-
-            <div className="flex items-center gap-2">
-              {/* Bouton de notifications */}
-              <div className="hidden sm:block">
-                <NotificationBell />
-              </div>
-
-              {userData && (
-                <div className="relative">
-                  <button
-                    onClick={() => setShowMenu(!showMenu)}
-                    className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition hover:bg-slate-50"
-                  >
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 text-xs font-bold text-white">
-                      {userData.username?.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="hidden text-sm font-semibold text-slate-900 sm:block">{userData.username}</span>
-                    <span className="text-xs text-slate-400">▼</span>
-                  </button>
-
-                  {showMenu && (
-                    <div className="absolute right-0 mt-3 w-56 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_24px_50px_rgba(15,23,42,0.12)]">
-                      <Link
-                        to="/mes-groupes"
-                        className="block border-b border-slate-100 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                        onClick={() => setShowMenu(false)}
-                      >
-                        Mes groupes
-                      </Link>
-                      <Link
-                        to="/notifications/invitations"
-                        className="block border-b border-slate-100 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                        onClick={() => setShowMenu(false)}
-                      >
-                        Invitations
-                      </Link>
-                      <Link
-                        to="/user/profile"
-                        className="block border-b border-slate-100 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                        onClick={() => setShowMenu(false)}
-                      >
-                        Mon profil
-                      </Link>
-                      <button
-                        onClick={() => {
-                          handleLogout()
-                          setShowMenu(false)
-                        }}
-                        className="w-full px-4 py-3 text-left text-sm font-medium text-rose-500 transition hover:bg-rose-50"
-                      >
-                        Deconnexion
-                      </button>
-                    </div>
-                  )}
+              {showResults && searchResults.length === 0 && searchQuery.trim() && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-lg p-4 text-center z-50">
+                  <p className="text-sm text-slate-500">Aucun groupe trouvé</p>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Right: Notifications */}
+          <div className="flex items-center justify-end flex-shrink-0">
+            <NotificationBell />
+          </div>
         </div>
-      </div>
-    </nav>
+
+        {/* Recherche Mobile (visible uniquement sur mobile et sous la navbar) */}
+        <div className="md:hidden px-4 py-3 border-t border-slate-200 bg-slate-50">
+          <div ref={searchRef} className="relative">
+            <input
+              type="text"
+              placeholder="Chercher un groupe..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value)
+                setShowResults(e.target.value.trim().length > 0)
+              }}
+              onFocus={() => setShowResults(searchQuery.trim().length > 0)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 placeholder-slate-500 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+            />
+            <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.5 5.5a7.5 7.5 0 0010.5 10.5Z" className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+
+            {/* Dropdown résultats mobile */}
+            {showResults && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden z-50 max-h-96">
+                {searchResults.length > 0 ? (
+                  searchResults.map((result) => (
+                    <button
+                      key={`${result.type}-${result.id}`}
+                      onClick={() => handleSearchSelect(result)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-b-0"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">{result.name}</p>
+                        <p className="text-xs text-slate-500 truncate">{result.description}</p>
+                      </div>
+                    </button>
+                  ))
+                ) : searchQuery.trim() ? (
+                  <div className="p-4 text-center">
+                    <p className="text-sm text-slate-500">Aucun groupe trouvé</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Mobile Menu */}
+      <MobileMenu isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)} />
+    </>
   )
 }

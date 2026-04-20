@@ -1,5 +1,6 @@
 import { ref, push, set, get, update } from 'firebase/database'
 import { database as db } from './firebaseConfig'
+import { auth } from './firebaseConfig'
 
 /**
  * Créer une notification
@@ -8,10 +9,12 @@ import { database as db } from './firebaseConfig'
  */
 export const createNotification = async (userId, notificationData) => {
   try {
+    const currentUser = auth.currentUser
     const notificationRef = push(ref(db, `notifications/${userId}`))
     await set(notificationRef, {
       ...notificationData,
       createdAt: new Date().toISOString(),
+      createdBy: currentUser?.uid || null,
       read: false,
     })
     return notificationRef.key

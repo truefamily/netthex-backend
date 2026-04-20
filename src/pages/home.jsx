@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Navbar from '../components/Navbar'
 import GroupCard from '../components/GroupCard'
 import { useGroups } from '../context/GroupContext'
 import { useAuth } from '../context/AuthContext'
@@ -710,12 +709,9 @@ export default function Home() {
       key: 'my-groups',
       label: 'Mes groupes',
       icon: 'M5 18h14M7 18V9l5-4l5 4v9M10 18v-4h4v4',
-      accent: feedScope === 'joined',
+      accent: false,
       meta: `${joinedGroupsWithFallback.length} groupes`,
-      action: () => {
-        setFeedScope('joined')
-        setFeedFilter('for-you')
-      },
+      action: () => navigate('/mes-groupes'),
     },
     {
       key: 'latest',
@@ -911,8 +907,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#eef3fb] text-slate-900">
-      <Navbar />
-
       <div className="mx-auto max-w-[1460px] pl-0 pr-4 pt-0 pb-8 sm:pr-6 lg:pr-8">
         <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)_290px]">
           <aside className="space-y-0 xl:sticky xl:top-[58px] xl:self-start">

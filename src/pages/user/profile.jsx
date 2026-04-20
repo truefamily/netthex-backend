@@ -1,4 +1,3 @@
-import Navbar from '../../components/Navbar'
 import { useAuth } from '../../context/AuthContext'
 import { logOut } from '../../services/authService'
 import { useNavigate } from 'react-router-dom'
@@ -89,8 +88,6 @@ export default function Profile() {
 
   return (
     <div className="min-h-screen bg-[#f6f8fb] text-slate-900">
-      <Navbar />
-
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>

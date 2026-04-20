@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Fichiers d'environnement (contiennent des credentials sensibles)
+.env
+.env.local
+.env.*.local
+
+# Firebase Admin credentials (IMPORTANT: Ne jamais commiter!)
+serviceAccountKey.json
+*.service-account.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
