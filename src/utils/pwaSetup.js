@@ -3,9 +3,41 @@
  * Permet à l'app de fonctionner offline et d'être installée comme app mobile
  */
 
+const unregisterServiceWorkers = async () => {
+  if (!('serviceWorker' in navigator)) {
+    return
+  }
+
+  const registrations = await navigator.serviceWorker.getRegistrations()
+  await Promise.all(registrations.map((registration) => registration.unregister()))
+}
+
+const clearNetthexCaches = async () => {
+  if (!('caches' in window)) {
+    return
+  }
+
+  const cacheNames = await caches.keys()
+  const netthexCaches = cacheNames.filter((cacheName) => cacheName.startsWith('netthex-'))
+  await Promise.all(netthexCaches.map((cacheName) => caches.delete(cacheName)))
+}
+
 export const initServiceWorker = () => {
   if (!('serviceWorker' in navigator)) {
     console.log('⚠️ Service Worker non supporté par ce navigateur')
+    return
+  }
+
+  if (import.meta.env.DEV) {
+    window.addEventListener('load', () => {
+      Promise.all([unregisterServiceWorkers(), clearNetthexCaches()])
+        .then(() => {
+          console.log('🧹 Service worker et caches PWA désactivés en développement')
+        })
+        .catch((error) => {
+          console.error('❌ Erreur nettoyage PWA en développement:', error)
+        })
+    })
     return
   }
 

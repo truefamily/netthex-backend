@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { signUp, logIn } from '../services/authService'
+import { useEffect, useState } from 'react'
+import { consumeAuthNotice, signUp, logIn, requestPasswordReset } from '../services/authService'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { markProfilePhotoSetupPending } from '../utils/profilePhotoSetup'
 
@@ -30,10 +30,20 @@ export default function Auth() {
   const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const [rememberMe, setRememberMe] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [rememberMe, setRememberMe] = useState(true)
   const navigate = useNavigate()
   const location = useLocation()
+
+  useEffect(() => {
+    const notice = consumeAuthNotice()
+
+    if (notice) {
+      setError(notice)
+    }
+  }, [])
 
   const pendingRedirectPath = (() => {
     const from = location.state?.from
@@ -45,11 +55,11 @@ export default function Auth() {
   })()
 
   const validateForm = () => {
-    const normalizedEmail = email.trim().toLowerCase()
+    const normalizedLoginIdentifier = email.trim()
     const normalizedUsername = username.trim()
 
-    if (!normalizedEmail) {
-      return 'Adresse e-mail requise.'
+    if (!normalizedLoginIdentifier) {
+      return isLogin ? 'Adresse e-mail ou pseudo requis.' : 'Adresse e-mail requise.'
     }
 
     if (!password) {
@@ -61,8 +71,8 @@ export default function Auth() {
         return "Le nom d'utilisateur doit contenir au moins 3 caracteres."
       }
 
-      if (password.length < 6) {
-        return 'Le mot de passe doit contenir au moins 6 caracteres.'
+      if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password)) {
+        return 'Le mot de passe doit contenir au moins 8 caracteres, une majuscule, une minuscule et un chiffre.'
       }
     }
 
@@ -72,6 +82,7 @@ export default function Auth() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setSuccessMessage('')
 
     const validationError = validateForm()
     if (validationError) {
@@ -83,12 +94,21 @@ export default function Auth() {
 
     try {
       if (isLogin) {
-        await logIn(email, password, { rememberMe })
+        const result = await logIn(email, password, { rememberMe })
+
+        if (result.requiresEmailVerification) {
+          navigate('/auth/verify-email', {
+            replace: true,
+            state: pendingRedirectPath ? { from: location.state?.from } : undefined,
+          })
+          return
+        }
+
         navigate(pendingRedirectPath || '/', { replace: true })
       } else {
-        await signUp(email, password, username, { rememberMe })
+        await signUp(email, password, username, { rememberMe: true })
         markProfilePhotoSetupPending()
-        navigate('/user/profile/photo', {
+        navigate('/auth/verify-email', {
           replace: true,
           state: pendingRedirectPath ? { from: location.state?.from } : undefined,
         })
@@ -97,6 +117,31 @@ export default function Auth() {
       setError(err.message || 'Une erreur est survenue')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handlePasswordReset = async () => {
+    setError('')
+    setSuccessMessage('')
+
+    const normalizedEmail = email.trim().toLowerCase()
+
+    if (!normalizedEmail) {
+      setError("Renseigne ton adresse e-mail pour recevoir le lien de reinitialisation.")
+      return
+    }
+
+    setResetLoading(true)
+
+    try {
+      await requestPasswordReset(normalizedEmail)
+      setSuccessMessage(
+        'Si cette adresse existe, un e-mail de reinitialisation vient d etre envoye.',
+      )
+    } catch (err) {
+      setError(err.message || 'Impossible d envoyer l e-mail de reinitialisation.')
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -149,6 +194,35 @@ export default function Auth() {
               </div>
 
               <div className="mb-8">
+                <div className="mb-5 inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogin(true)
+                      setError('')
+                      setSuccessMessage('')
+                    }}
+                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                      isLogin ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    Connexion
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogin(false)
+                      setError('')
+                      setSuccessMessage('')
+                    }}
+                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                      !isLogin ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    Creer un compte
+                  </button>
+                </div>
+
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-600">
                   {isLogin ? 'Bienvenue' : 'Creation de compte'}
                 </p>
@@ -160,6 +234,11 @@ export default function Auth() {
                     ? 'Entre tes informations pour acceder a tes groupes et discussions.'
                     : 'Renseigne quelques details pour commencer a explorer la plateforme.'}
                 </p>
+                {isLogin && (
+                  <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    Le pseudo est demande uniquement lors de la creation du compte.
+                  </p>
+                )}
               </div>
 
               {error && (
@@ -168,39 +247,53 @@ export default function Auth() {
                 </div>
               )}
 
+              {successMessage && (
+                <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  {successMessage}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-5">
                 {!isLogin && (
                   <div className="space-y-2">
                     <label htmlFor="username" className="block text-sm font-medium text-slate-700">
-                      Nom d'utilisateur
+                      Pseudo
                     </label>
                     <input
                       id="username"
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      placeholder="Entre ton nom d'utilisateur"
+                      placeholder="Choisis ton pseudo"
                       autoComplete="username"
                       minLength={3}
                       className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-300 focus:outline-none focus:ring-4 focus:ring-sky-100"
                     />
+                    <p className="text-xs leading-5 text-slate-500">
+                      Ton pseudo sera visible dans ton profil, tes groupes et tes messages.
+                    </p>
                   </div>
                 )}
 
                 <div className="space-y-2">
                   <label htmlFor="email" className="block text-sm font-medium text-slate-700">
-                    Adresse e-mail
+                    {isLogin ? 'Adresse e-mail ou pseudo' : 'Adresse e-mail'}
                   </label>
                   <input
                     id="email"
-                    type="email"
+                    type={isLogin ? 'text' : 'email'}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nom@exemple.com"
+                    placeholder={isLogin ? 'nom@exemple.com ou ton pseudo' : 'nom@exemple.com'}
                     required
-                    autoComplete="email"
+                    autoComplete={isLogin ? 'username' : 'email'}
                     className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-300 focus:outline-none focus:ring-4 focus:ring-sky-100"
                   />
+                  {isLogin && (
+                    <p className="text-xs leading-5 text-slate-500">
+                      Tu peux te connecter avec ton adresse e-mail ou ton pseudo.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -215,9 +308,14 @@ export default function Auth() {
                     placeholder="Saisis ton mot de passe"
                     required
                     autoComplete={isLogin ? 'current-password' : 'new-password'}
-                    minLength={6}
+                    minLength={8}
                     className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-300 focus:outline-none focus:ring-4 focus:ring-sky-100"
                   />
+                  {!isLogin && (
+                    <p className="text-xs leading-5 text-slate-500">
+                      Minimum 8 caracteres avec une majuscule, une minuscule et un chiffre.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-4 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -239,12 +337,14 @@ export default function Auth() {
                   )}
 
                   {isLogin && (
-                    <a
-                      href="#"
+                    <button
+                      type="button"
+                      onClick={handlePasswordReset}
+                      disabled={resetLoading}
                       className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
                     >
-                      Mot de passe oublie ?
-                    </a>
+                      {resetLoading ? 'Envoi...' : 'Mot de passe oublie ?'}
+                    </button>
                   )}
                 </div>
 
@@ -257,23 +357,9 @@ export default function Auth() {
                 </button>
               </form>
 
-              <div className="mt-8 flex items-center gap-3 text-sm text-slate-500">
-                <div className="h-px flex-1 bg-slate-200" />
-                  <span>{isLogin ? "Pas encore de compte ?" : 'Deja inscrit ?'}</span>
-                <div className="h-px flex-1 bg-slate-200" />
+              <div className="mt-8 text-center text-sm text-slate-500">
+                {isLogin ? "Pas encore de compte ? Utilise l'onglet \"Creer un compte\"." : 'Deja inscrit ? Reviens sur l onglet "Connexion".'}
               </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(!isLogin)
-                  setError('')
-                  setPassword('')
-                }}
-                className="mt-5 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                {isLogin ? 'Creer un compte' : 'Revenir a la connexion'}
-              </button>
             </div>
           </section>
         </div>

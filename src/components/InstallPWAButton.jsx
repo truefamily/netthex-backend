@@ -6,17 +6,26 @@ import { isPWAInstallable, promptPWAInstall } from '../utils/pwaSetup'
  * Apparaît seulement si l'app peut être installée
  */
 export default function InstallPWAButton() {
-  const [isInstallable, setIsInstallable] = useState(false)
-  const [isInstalled, setIsInstalled] = useState(false)
-
-  useEffect(() => {
-    // Vérifie si la PWA est déjà installée
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-      setIsInstalled(true)
-      return
+  const [isInstallable, setIsInstallable] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
     }
 
-    // Vérifie si l'app peut être installée
+    return isPWAInstallable()
+  })
+  const [isInstalled] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    return window.matchMedia('(display-mode: standalone)').matches
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isInstalled) {
+      return undefined
+    }
+
     const checkInstallability = () => {
       setIsInstallable(isPWAInstallable())
     }
@@ -27,7 +36,7 @@ export default function InstallPWAButton() {
     return () => {
       window.removeEventListener('beforeinstallprompt', checkInstallability)
     }
-  }, [])
+  }, [isInstalled])
 
   if (isInstalled || !isInstallable) {
     return null

@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { onAuthChange } from '../services/authService'
-import { getUserData } from '../services/authService'
+import { getUserData, onAuthChange, refreshCurrentUser as refreshSessionUser } from '../services/authService'
 import SplashScreen from '../components/SplashScreen'
+import { initializeAuthPersistence } from '../services/firebaseConfig'
 
 const AuthContext = createContext()
+const MINIMUM_SPLASH_MS = 350
 
 export const useAuth = () => {
   const context = useContext(AuthContext)
@@ -34,31 +35,86 @@ export const AuthProvider = ({ children }) => {
     }
   }, [])
 
+  const refreshCurrentUser = useCallback(async () => {
+    try {
+      const refreshedUser = await refreshSessionUser()
+
+      setCurrentUser(refreshedUser)
+
+      if (refreshedUser?.uid) {
+        await refreshUserData(refreshedUser.uid)
+      } else {
+        setUserData(null)
+      }
+
+      return refreshedUser
+    } catch {
+      setCurrentUser(null)
+      setUserData(null)
+      return null
+    }
+  }, [refreshUserData])
+
   useEffect(() => {
-    const unsubscribe = onAuthChange(async (user) => {
-      // Créer une promesse qui se résout après 3 secondes minimum
-      const minimumLoadingTime = new Promise((resolve) => {
-        setTimeout(resolve, 3000)
+    let unsubscribe = () => {}
+    let isMounted = true
+
+    const initializeAuth = async () => {
+      try {
+        await initializeAuthPersistence()
+      } catch {
+        // Fall back to Firebase's built-in persistence handling if explicit setup fails.
+      }
+
+      if (!isMounted) {
+        return
+      }
+
+      unsubscribe = onAuthChange(async (user) => {
+        const minimumLoadingTime = new Promise((resolve) => {
+          setTimeout(resolve, MINIMUM_SPLASH_MS)
+        })
+
+        await Promise.all([
+          (async () => {
+            if (!user) {
+              setCurrentUser(null)
+              setUserData(null)
+              return
+            }
+
+            try {
+              const refreshedUser = await refreshSessionUser()
+              const activeUser = refreshedUser || user
+
+              if (!activeUser?.uid) {
+                setCurrentUser(null)
+                setUserData(null)
+                return
+              }
+
+              setCurrentUser(activeUser)
+              await refreshUserData(activeUser.uid)
+            } catch {
+              setCurrentUser(null)
+              setUserData(null)
+            }
+          })(),
+          minimumLoadingTime,
+        ])
+
+        if (isMounted) {
+          setLoading(false)
+        }
       })
+    }
 
-      // Attendre que la vérification d'auth ET les 3 secondes soient écoulées
-      await Promise.all([
-        (async () => {
-          if (user) {
-            setCurrentUser(user)
-            await refreshUserData(user.uid)
-          } else {
-            setCurrentUser(null)
-            setUserData(null)
-          }
-        })(),
-        minimumLoadingTime,
-      ])
+    initializeAuth()
 
-      setLoading(false)
-    })
-
-    return unsubscribe
+    return () => {
+      isMounted = false
+      unsubscribe()
+    }
   }, [refreshUserData])
 
   const value = {
@@ -66,6 +122,7 @@ export const AuthProvider = ({ children }) => {
     userData,
     loading,
     refreshUserData,
+    refreshCurrentUser,
   }
 
   return (

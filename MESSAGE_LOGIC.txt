@@ -1,0 +1,198 @@
+LOGIQUE PAGE MESSAGES - NETTHEX
+
+1. PRINCIPE GENERAL
+
+Netthex ne repose pas sur un systeme d'amis.
+Les messages prives sont possibles uniquement entre deux utilisateurs qui partagent au moins un groupe.
+
+Cela veut dire :
+- un utilisateur ne peut pas ouvrir librement un DM avec n'importe quel profil de la plateforme
+- un DM existe parce que deux membres ont un contexte commun : un ou plusieurs groupes partages
+- la conversation privee est separee des discussions de groupe
+
+
+2. REGLE METIER PRINCIPALE
+
+Un utilisateur A peut envoyer un message prive a un utilisateur B si et seulement si :
+- A appartient a au moins un groupe
+- B appartient a au moins un groupe
+- A et B partagent au moins un meme groupe
+
+Sinon :
+- le DM ne doit pas etre propose dans l'interface
+- l'API doit refuser l'envoi
+
+
+3. CE QUI APPARAIT DANS L'ONGLET "PRIVES"
+
+L'onglet "Prives" contient 2 blocs :
+
+A. Conversations
+- conversations privees deja creees
+- affichees en premier
+- triees par derniere activite
+
+B. Membres de vos groupes
+- membres avec qui l'utilisateur partage au moins un groupe
+- uniquement si aucun DM n'a encore ete cree avec eux
+- sert de point d'entree pour demarrer un nouveau fil prive
+
+Chaque carte peut afficher :
+- nom
+- avatar
+- dernier message si la conversation existe deja
+- contexte de relation
+  exemple : "Groupe en commun : Designers"
+  ou : "3 groupes en commun"
+
+
+4. CREATION D'UNE CONVERSATION PRIVEE
+
+Une conversation privee n'est pas creee a l'avance.
+Elle est creee seulement au premier message envoye.
+
+Flux :
+- l'utilisateur clique sur un membre de groupe
+- il arrive dans l'espace DM
+- il ecrit son premier message
+- a ce moment la conversation est creee
+
+La conversation stocke idealement :
+- id
+- participants
+- participantProfiles
+- createdAt
+- updatedAt
+- lastMessageAt
+- lastMessagePreview
+- lastMessageAuthorId
+- totalMessages
+- sourceGroupId
+- sharedGroupIds
+
+
+5. SI LES DEUX MEMBRES NE PARTAGENT PLUS AUCUN GROUPE
+
+Comportement recommande :
+- l'historique reste visible
+- l'envoi de nouveaux messages est bloque
+
+Pourquoi :
+- on garde la trace de l'echange precedent
+- on respecte la regle produit actuelle
+- on evite qu'un ancien lien de groupe devienne un canal prive permanent sans contexte commun
+
+Message UI recommande :
+"Vous ne partagez plus de groupe avec cette personne. L'historique reste visible, mais l'envoi est bloque."
+
+
+6. POINTS D'ENTREE VERS LES MESSAGES PRIVES
+
+Les entrees naturelles sont :
+- depuis la page groupe
+- depuis la modale fiche membre
+- depuis la liste "Contacts" / "Membres actifs"
+- depuis la page profil utilisateur, uniquement si vous partagez deja au moins un groupe avec cette personne
+
+Important :
+- on ne montre pas "Ecrire en prive" si l'utilisateur essaie de s'ecrire a lui-meme
+- sur la page profil utilisateur, le bouton "Ecrire en prive" apparait seulement si :
+  - ce n'est pas votre propre profil
+  - vous partagez au moins un groupe avec cette personne
+- on peut rediriger vers /direct/t/message?id=...
+
+
+7. DIFFERENCE ENTRE GROUPE ET PRIVE
+
+Discussion de groupe :
+- visible par tous les membres du groupe
+- conserve le contexte communautaire
+
+Message prive :
+- visible uniquement par les 2 participants
+- separe du chat de groupe
+- ne remplace pas la conversation publique
+
+
+8. RECHERCHE DANS L'ONGLET "PRIVES"
+
+La recherche peut matcher :
+- nom du membre
+- email
+- dernier message
+- nom du groupe en commun
+- nombre / libelle de groupes partages
+
+Exemples utiles :
+- taper "design" retrouve quelqu'un si vous partagez le groupe "Designers"
+- taper un nom retrouve la conversation ou le membre eligible
+
+
+9. SECURITE COTE CLIENT
+
+Dans l'interface :
+- seuls les membres de groupes communs doivent etre proposes
+- si aucun groupe commun n'existe, le champ d'envoi doit etre desactive
+- un badge / message d'explication doit etre visible
+
+
+10. SECURITE COTE SERVEUR
+
+L'interface ne suffit pas.
+Le serveur doit aussi verifier la regle avant d'accepter un message prive.
+
+Verification minimale :
+- senderId authentifie
+- senderId different de recipientId
+- au moins un groupe en commun entre sender et recipient
+
+Si ce n'est pas le cas :
+- reponse 403
+- message clair
+
+
+11. BENEFICES DE CETTE LOGIQUE
+
+- simple a comprendre pour l'utilisateur
+- pas besoin de systeme d'amis
+- logique sociale naturelle : on parle en prive parce qu'on se connait via un groupe
+- meilleure confiance
+- moins de spam
+- produit plus coherent avec la structure communautaire de Netthex
+
+
+12. VERSION COURTE A RETENIR
+
+Sur Netthex, on ne peut pas envoyer de message prive a n'importe qui.
+On peut ecrire en prive uniquement a quelqu'un avec qui on partage au moins un groupe.
+Les conversations privees sont separees des groupes et sont creees au premier message.
+
+
+13. LOGIQUE MOBILE
+
+Sur mobile, la page Messages fonctionne en 2 niveaux :
+- vue liste
+- vue conversation
+
+Comportement :
+- au chargement, on affiche la liste des conversations
+- quand l'utilisateur touche un fil, la conversation prend tout l'ecran
+- la liste est masquee pendant la lecture du fil
+- un bouton retour dans l'en-tete de la conversation permet de revenir a la liste
+
+Organisation mobile :
+- les onglets "Prives" et "Groupes" restent dans la vue liste
+- en vue conversation, on affiche seulement le header du fil, les messages et le champ d'envoi
+- si aucun fil n'est selectionne, on reste sur la liste
+
+Logique privee en mobile :
+- la liste "Prives" garde les 2 sections :
+  - Conversations
+  - Membres de vos groupes
+- toucher un membre sans conversation ouvre directement un nouveau fil prive
+- le premier message cree la conversation
+
+Cas de blocage :
+- si deux personnes ne partagent plus aucun groupe, la conversation reste lisible
+- en revanche, le champ d'envoi est desactive
+- un message d'etat explique pourquoi l'envoi est bloque

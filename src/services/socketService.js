@@ -12,14 +12,13 @@ export const initSocket = async (userId) => {
     throw new Error('Utilisateur authentifie requis pour initialiser Socket.io.')
   }
 
-  const token = await currentUser.getIdToken()
+  const token = await currentUser.getIdToken(true)
 
   // URL du serveur socket.io (en développement: localhost:3001)
   const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001'
 
   socket = io(socketUrl, {
     auth: {
-      userId,
       token,
     },
     reconnection: true,
@@ -58,14 +57,11 @@ export const disconnectSocket = () => {
 }
 
 // Événements du chat
-export const sendMessage = (groupId, message, authorId, authorName) => {
+export const sendMessage = (groupId, message) => {
   const socket = getSocket()
   socket.emit('message:send', {
     groupId,
     content: message,
-    authorId,
-    authorName,
-    timestamp: new Date().toISOString(),
   })
 }
 
@@ -81,14 +77,14 @@ export const onMessagesUpdate = (callback) => {
   return () => socket.off('messages:update', callback)
 }
 
-export const joinGroup = (groupId, userId) => {
+export const joinGroup = (groupId) => {
   const socket = getSocket()
-  socket.emit('group:join', { groupId, userId })
+  socket.emit('group:join', { groupId })
 }
 
-export const leaveGroup = (groupId, userId) => {
+export const leaveGroup = (groupId) => {
   const socket = getSocket()
-  socket.emit('group:leave', { groupId, userId })
+  socket.emit('group:leave', { groupId })
 }
 
 export const onGroupMembersUpdate = (callback) => {
@@ -109,12 +105,10 @@ export const onTyping = (callback) => {
   return () => socket.off('typing:update', callback)
 }
 
-export const sendTyping = (groupId, userId, userName, isTyping) => {
+export const sendTyping = (groupId, isTyping) => {
   const socket = getSocket()
   socket.emit('typing:send', {
     groupId,
-    userId,
-    userName,
     isTyping,
   })
 }

@@ -5,13 +5,20 @@ import { useState, useEffect } from 'react'
  * Utile pour les layouts responsifs
  */
 export const useMediaQuery = (query) => {
-  const [matches, setMatches] = useState(false)
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    return window.matchMedia(query).matches
+  })
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
     const mediaQuery = window.matchMedia(query)
-    
-    // Définir la valeur initiale
-    setMatches(mediaQuery.matches)
 
     // Listener pour les changements
     const handler = (e) => setMatches(e.matches)
@@ -43,13 +50,11 @@ export const useBreakpoint = (breakpoint) => {
     xl: '(max-width: 1535px)',   // < 1536px (desktop)
   }
 
-  const query = breakpoints[breakpoint]
-  if (!query) {
+  if (!breakpoints[breakpoint]) {
     console.warn(`Breakpoint "${breakpoint}" non reconnu`)
-    return false
   }
 
-  return useMediaQuery(query)
+  return useMediaQuery(breakpoints[breakpoint] || '(max-width: 0px)')
 }
 
 /**

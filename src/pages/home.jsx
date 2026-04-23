@@ -5,6 +5,7 @@ import { useGroups } from '../context/GroupContext'
 import { useAuth } from '../context/AuthContext'
 import { createGroup } from '../services/realtimeService'
 import { uploadToCloudinary } from '../services/cloudinaryService'
+import { buildProfilePath } from '../utils/profileRoute'
 
 function formatShortDate(value) {
   if (!value) return 'recent'
@@ -218,7 +219,7 @@ function EditGroupDialog({
                 <p className="mb-3 text-sm font-semibold text-slate-700">Apercu</p>
                 <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
                   <div
-                    className="h-32 bg-cover bg-center"
+                    className="netthex-dark-media-preserve h-32 bg-cover bg-center"
                     style={{
                       backgroundImage: form.coverUrl
                         ? `url(${form.coverUrl})`
@@ -299,7 +300,7 @@ function HomePostCard({ post, onEditGroup, isFresh = false }) {
 
   return (
     <article
-      className={`overflow-hidden rounded-[30px] border bg-white transition-all duration-500 ${
+      className={`overflow-hidden border bg-white transition-all duration-500 ${
         isFresh
           ? 'border-sky-300 shadow-[0_22px_60px_rgba(14,165,233,0.18)] ring-4 ring-sky-100'
           : 'border-slate-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)]'
@@ -618,7 +619,7 @@ export default function Home() {
 
     setFreshPostsNotice(null)
     setHighlightedPostKeys([])
-  }, [currentUserId, feedScope, searchTerm])
+  }, [currentUserId, feedScope, scopedPosts, searchTerm])
 
   const handleRevealFreshPosts = () => {
     setFreshPostsNotice(null)
@@ -752,7 +753,7 @@ export default function Home() {
       icon: 'M12 12a4 4 0 1 0 0-8a4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0',
       accent: false,
       meta: 'view',
-      action: () => navigate('/user/profile'),
+      action: () => navigate(buildProfilePath(currentUser?.uid || userData?.uid)),
     },
   ]
   const resetCreateGroupForm = () => {
@@ -906,11 +907,11 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-[#eef3fb] text-slate-900">
-      <div className="mx-auto max-w-[1460px] pl-0 pr-4 pt-0 pb-8 sm:pr-6 lg:pr-8">
-        <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)_290px]">
-          <aside className="space-y-0 xl:sticky xl:top-[58px] xl:self-start">
-            <section className="border border-white/80 bg-white/80 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+    <div className="h-full overflow-hidden bg-white text-slate-900 xl:bg-[#eef3fb]">
+      <div className="h-full w-full overflow-hidden">
+        <div className="grid h-full min-h-0 xl:grid-cols-[260px_minmax(0,1fr)_290px]">
+          <aside className="hidden h-full min-h-0 overflow-y-auto border-r border-slate-200 bg-white xl:block">
+            <section className="border-b border-slate-200 bg-white/90 p-5 backdrop-blur-sm">
               <div className="flex items-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-sky-500 text-lg font-bold text-white">
                   {username.charAt(0).toUpperCase()}
@@ -937,7 +938,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="border-x border-b border-white/80 bg-white/80 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+            <section className="bg-white/90 p-4 backdrop-blur-sm">
               <div className="space-y-1">
                 {leftMenuItems.map((item) => (
                   <button
@@ -992,9 +993,9 @@ export default function Home() {
             </section>
           </aside>
 
-          <main className="min-w-0 space-y-6">
+          <main className="min-w-0 h-full min-h-0 overflow-y-auto bg-white">
             <div ref={feedTopRef} />
-            <section className="border border-white/80 bg-white px-5 py-4 shadow-[0_20px_60px_rgba(15,23,42,0.06)] sm:px-6">
+            <section className="border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Home feed</p>
@@ -1026,7 +1027,8 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="space-y-6">
+            <section className="bg-white px-0 py-0">
+              <div className="space-y-0">
               {freshPostsNotice && (
                 <button
                   type="button"
@@ -1048,7 +1050,7 @@ export default function Home() {
                 [1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="h-72 animate-pulse rounded-[28px] border border-slate-200 bg-white"
+                    className="h-72 animate-pulse border-b border-slate-200 bg-white"
                   />
                 ))
               ) : feedPosts.length > 0 ? (
@@ -1061,7 +1063,7 @@ export default function Home() {
                   />
                 ))
               ) : (
-                <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-16 text-center">
+                <div className="border-b border-slate-200 bg-white px-6 py-16 text-center">
                   <p className="text-5xl">📭</p>
                   <p className="mt-4 text-lg font-semibold text-slate-900">
                     {searchTerm ? 'Aucun contenu trouvé' : 'Ton feed est encore vide'}
@@ -1073,11 +1075,12 @@ export default function Home() {
                   </p>
                 </div>
               )}
+              </div>
             </section>
           </main>
 
-          <aside className="space-y-5 xl:sticky xl:top-[58px] xl:self-start">
-            <section className="border border-white/80 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+          <aside className="hidden h-full min-h-0 overflow-y-auto border-l border-slate-200 bg-white xl:block">
+            <section className="border-b border-slate-200 bg-white p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-900">My Community</h2>
                 <button
@@ -1122,7 +1125,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="border border-white/80 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <section className="border-b border-slate-200 bg-white p-5">
               <h2 className="text-sm font-semibold text-slate-900">Suggestions</h2>
               <div className="mt-4 space-y-4">
                 {suggestedCommunities.length > 0 ? (
@@ -1159,7 +1162,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="border border-white/80 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <section className="border-b border-slate-200 bg-white p-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-900">Active friends</h2>
                 <span className="text-xs text-slate-400">{activeFriends.filter((friend) => friend.isOnline).length} online</span>
@@ -1185,7 +1188,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="border border-white/80 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <section className="bg-white p-5">
               <h2 className="text-sm font-semibold text-slate-900">Trending posts</h2>
               <div className="mt-4 space-y-4">
                 {trendingPosts.length > 0 ? (

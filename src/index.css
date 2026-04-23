@@ -5,18 +5,18 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
-  --background: #0f1117;
-  --surface: #161a22;
-  --surface-strong: #1c2130;
-  --border: rgba(255, 255, 255, 0.08);
-  --text: #f5f7fb;
-  --muted: #9ca6ba;
-  --brand: #67d3f6;
-  --brand-strong: #3eaed4;
+  color-scheme: light;
+  --background: #eef3fb;
+  --surface: #ffffff;
+  --surface-strong: #f8fbff;
+  --border: rgba(15, 23, 42, 0.08);
+  --text: #0f172a;
+  --muted: #64748b;
+  --brand: #0ea5e9;
+  --brand-strong: #0284c7;
   --danger-bg: rgba(255, 107, 129, 0.12);
   --danger-border: rgba(255, 107, 129, 0.24);
-  --danger-text: #ffc2ce;
+  --danger-text: #be123c;
 }
 
 * {
@@ -33,15 +33,38 @@ html {
   background: var(--background);
 }
 
+html.netthex-compact-ui {
+  font-size: 15px;
+}
+
 body {
   margin: 0;
   font-family: 'Manrope', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background:
-    radial-gradient(circle at top, rgba(103, 211, 246, 0.08), transparent 28%),
-    linear-gradient(180deg, #11141b 0%, #0c0f15 100%);
+    radial-gradient(circle at top, rgba(14, 165, 233, 0.08), transparent 28%),
+    linear-gradient(180deg, #f5f8fe 0%, #e9eef8 100%);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html.netthex-dark-ui {
+  color-scheme: dark;
+}
+
+html.netthex-dark-ui #root {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+html.netthex-dark-ui img,
+html.netthex-dark-ui video,
+html.netthex-dark-ui canvas,
+html.netthex-dark-ui iframe {
+  filter: invert(1) hue-rotate(180deg) !important;
+}
+
+html.netthex-dark-ui .netthex-dark-media-preserve {
+  filter: invert(1) hue-rotate(180deg) !important;
 }
 
 a {

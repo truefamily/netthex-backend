@@ -19,7 +19,7 @@ export const GroupProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!currentUser?.uid) {
+    if (!currentUser?.uid || !currentUser?.emailVerified) {
       setGroups({})
       setLoading(false)
       return undefined
@@ -41,7 +41,7 @@ export const GroupProvider = ({ children }) => {
     )
 
     return () => unsubscribe()
-  }, [currentUser?.uid])
+  }, [currentUser?.emailVerified, currentUser?.uid])
 
   const updateGroupDetails = async (groupId, updates) => {
     const previousGroup = groups[groupId]

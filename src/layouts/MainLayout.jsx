@@ -1,31 +1,28 @@
+import { useLocation } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import Sidebar from '../components/Sidebar'
-import BottomNav from '../components/BottomNav'
 
 /**
- * Layout principal responsif
- * - Sidebar sur desktop (lg+)
- * - Bottom nav sur mobile (< lg)
- * - Navbar en haut sur tous les écrans
+ * Layout principal
+ * - Navbar en haut
  */
 export default function MainLayout({ children }) {
+  const location = useLocation()
+  const isInvitePage = location.pathname.startsWith('/invite/')
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="flex min-h-dvh flex-col overflow-hidden bg-slate-50 md:h-screen">
       {/* Navbar */}
       <Navbar />
 
-      <div className="flex flex-1">
-        {/* Sidebar (Desktop only) */}
-        <Sidebar />
-
-        {/* Main Content */}
-        <main className="flex-1 w-full overflow-y-auto pb-20 lg:pb-0">
+      <div className="flex flex-1 min-h-0">
+        <main
+          className={`min-h-0 w-full flex-1 overflow-x-hidden overflow-y-auto pb-20 md:pb-0 ${
+            isInvitePage ? 'md:overflow-y-auto' : 'md:overflow-hidden'
+          }`}
+        >
           {children}
         </main>
       </div>
-
-      {/* Bottom Navigation (Mobile only) */}
-      <BottomNav />
     </div>
   )
 }

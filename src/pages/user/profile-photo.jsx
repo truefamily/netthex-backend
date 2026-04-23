@@ -7,6 +7,7 @@ import {
   clearProfilePhotoSetupPending,
   isProfilePhotoSetupPending,
 } from '../../utils/profilePhotoSetup'
+import { buildProfilePath } from '../../utils/profileRoute'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024
 
@@ -112,7 +113,7 @@ export default function ProfilePhotoSetup() {
       await updateUserAvatar(avatarUrl)
       await refreshUserData(currentUser?.uid)
       clearProfilePhotoSetupPending()
-      navigate(isPendingSetup ? redirectPath || '/' : '/user/profile', { replace: true })
+      navigate(isPendingSetup ? redirectPath || '/' : buildProfilePath(currentUser?.uid || userData?.uid), { replace: true })
     } catch (saveError) {
       setError(saveError.message || "Impossible d'enregistrer la photo.")
     } finally {

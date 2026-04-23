@@ -4,8 +4,26 @@ import { Server } from 'socket.io'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import admin from 'firebase-admin'
+import { existsSync, readFileSync } from 'fs'
+import { buildSignedUploadPayload } from './src/server/cloudinarySignature.js'
+import {
+  isEmailLike,
+  normalizeEmail,
+  normalizeUsername,
+  normalizeUsernameLookup,
+} from './src/shared/authIdentifiers.js'
 
 dotenv.config()
+
+const requireEnv = (name) => {
+  const value = process.env[name]?.trim()
+
+  if (!value) {
+    throw new Error(`Variable d'environnement requise manquante: ${name}`)
+  }
+
+  return value
+}
 
 const allowedOrigins = new Set(
   [
@@ -17,17 +35,60 @@ const allowedOrigins = new Set(
   ].filter(Boolean),
 )
 
+const isLocalDevHostname = (hostname) =>
+  hostname === 'localhost' ||
+  hostname === '127.0.0.1' ||
+  hostname === '::1' ||
+  /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+  /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+
+const isAllowedOrigin = (origin) => {
+  if (!origin || allowedOrigins.has(origin)) {
+    return true
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      const parsedOrigin = new URL(origin)
+
+      if (parsedOrigin.protocol === 'http:' && isLocalDevHostname(parsedOrigin.hostname)) {
+        return true
+      }
+    } catch {
+      return false
+    }
+  }
+
+  try {
+    const parsedOrigin = new URL(origin)
+
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      isLocalDevHostname(parsedOrigin.hostname) &&
+      ['5173', '5174'].includes(parsedOrigin.port)
+    ) {
+      return true
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
+
 const corsOptions = {
   origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true)
       return
     }
 
     callback(new Error('Origin non autorisee par CORS.'))
   },
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
+  optionsSuccessStatus: 204,
 }
 
 // Initialiser Express et Socket.io
@@ -39,20 +100,48 @@ const io = new Server(httpServer, {
 
 // Middleware
 app.use(cors(corsOptions))
+app.options(/.*/, cors(corsOptions))
 app.use(express.json())
+
+const localServiceAccountUrl = new URL('./serviceAccountKey.json', import.meta.url)
+
+const resolveFirebaseCredential = () => {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+    return {
+      credential: admin.credential.cert(parsed),
+      source: `env:FIREBASE_SERVICE_ACCOUNT_JSON (${parsed.project_id || 'project inconnu'})`,
+    }
+  }
+
+  if (existsSync(localServiceAccountUrl)) {
+    const parsed = JSON.parse(readFileSync(localServiceAccountUrl, 'utf8'))
+    return {
+      credential: admin.credential.cert(parsed),
+      source: `file:serviceAccountKey.json (${parsed.project_id || 'project inconnu'})`,
+    }
+  }
+
+  return {
+    credential: admin.credential.applicationDefault(),
+    source: 'applicationDefault',
+  }
+}
 
 // Initialiser Firebase Admin
 if (!admin.apps.length) {
   try {
-    // Essayer d'utiliser GOOGLE_APPLICATION_CREDENTIALS en premier
+    const { credential, source } = resolveFirebaseCredential()
+    const databaseURL = requireEnv('FIREBASE_DATABASE_URL')
+
     admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      databaseURL: process.env.FIREBASE_DATABASE_URL,
+      credential,
+      databaseURL,
     })
-    console.log('✓ Firebase Admin initialisé avec service account')
+    console.log(`✓ Firebase Admin initialisé avec ${source}`)
   } catch (error) {
     console.error('⚠ Impossible d\'initialiser Firebase Admin:', error.message)
-    console.error('Assurez-vous que GOOGLE_APPLICATION_CREDENTIALS est configuré')
+    console.error('Configurez FIREBASE_SERVICE_ACCOUNT_JSON, serviceAccountKey.json ou GOOGLE_APPLICATION_CREDENTIALS')
     process.exit(1)
   }
 }
@@ -62,6 +151,10 @@ const db = admin.database()
 // Structure pour tracker les utilisateurs par groupe
 const groupUsers = {} // { groupId: { userId: { socket.id, userName } } }
 const typingUsers = {} // { groupId: { userId: { userName, timeout } } }
+const DISABLED_ACCOUNT_STATUSES = new Set(['blocked', 'deleted'])
+const loginLookupRequests = new Map()
+const LOGIN_LOOKUP_WINDOW_MS = 60 * 1000
+const LOGIN_LOOKUP_MAX_REQUESTS = 20
 
 const buildDirectConversationId = (firstUserId, secondUserId) =>
   [firstUserId, secondUserId].sort().join('__')
@@ -107,11 +200,67 @@ const sendApiError = (res, status, message, details = undefined) =>
     ...(details ? { details } : {}),
   })
 
+const getClientAddress = (req) =>
+  String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown')
+    .split(',')[0]
+    .trim()
+
+const isRateLimited = (req, scope) => {
+  const key = `${scope}:${getClientAddress(req)}`
+  const now = Date.now()
+  const currentEntry = loginLookupRequests.get(key)
+
+  if (!currentEntry || now - currentEntry.startedAt > LOGIN_LOOKUP_WINDOW_MS) {
+    loginLookupRequests.set(key, {
+      count: 1,
+      startedAt: now,
+    })
+    return false
+  }
+
+  currentEntry.count += 1
+  loginLookupRequests.set(key, currentEntry)
+  return currentEntry.count > LOGIN_LOOKUP_MAX_REQUESTS
+}
+
 const getGroupSnapshot = (groupId) => db.ref(`groups/${groupId}`).once('value')
 const getDirectConversationSnapshot = (conversationId) =>
   db.ref(`directConversations/${conversationId}`).once('value')
 const getPostSnapshot = (groupId, postId) =>
   db.ref(`groups/${groupId}/posts/${postId}`).once('value')
+const getUserStatusSnapshot = (uid) => db.ref(`users/${uid}/status`).once('value')
+
+const findUserByUsernameLookup = async (usernameLookup) => {
+  const usersSnapshot = await db.ref('users').once('value')
+
+  for (const [uid, profile] of Object.entries(usersSnapshot.val() || {})) {
+    const candidateLookup =
+      String(profile?.usernameLowercase || normalizeUsernameLookup(profile?.username || ''))
+        .trim()
+        .toLowerCase()
+
+    if (candidateLookup === usernameLookup) {
+      return {
+        uid,
+        profile: profile || null,
+      }
+    }
+  }
+
+  return null
+}
+
+const getSharedGroupIdsForUsers = async (firstUserId, secondUserId) => {
+  const groupsSnapshot = await db.ref('groups').once('value')
+
+  return Object.entries(groupsSnapshot.val() || {}).reduce((sharedGroupIds, [groupId, group]) => {
+    if (isGroupMember(group, firstUserId) && isGroupMember(group, secondUserId)) {
+      sharedGroupIds.push(groupId)
+    }
+
+    return sharedGroupIds
+  }, [])
+}
 
 const getBearerToken = (req) => {
   const authorization = req.headers.authorization || ''
@@ -123,6 +272,8 @@ const getBearerToken = (req) => {
   return authorization.slice('Bearer '.length).trim()
 }
 
+const verifyAuthToken = async (token) => admin.auth().verifyIdToken(token, true)
+
 const authenticateRequest = async (req, res) => {
   const token = getBearerToken(req)
 
@@ -132,7 +283,15 @@ const authenticateRequest = async (req, res) => {
   }
 
   try {
-    return await admin.auth().verifyIdToken(token)
+    const decodedToken = await verifyAuthToken(token)
+    const accountError = await getAuthorizationFailure(decodedToken)
+
+    if (accountError) {
+      sendApiError(res, accountError.status, accountError.message)
+      return null
+    }
+
+    return decodedToken
   } catch (error) {
     console.error('Erreur verification token Firebase:', error)
     sendApiError(res, 401, 'Token Firebase invalide ou expire.')
@@ -163,6 +322,27 @@ const authorizeUserAccess = async (
 const isGroupMember = (group, userId) =>
   Boolean(group?.adminId === userId || group?.members?.[userId])
 
+const getAuthorizationFailure = async (decodedToken) => {
+  if (decodedToken?.email_verified !== true) {
+    return {
+      status: 403,
+      message: 'Adresse e-mail non verifiee. Verifie ton compte avant d acceder a cette ressource.',
+    }
+  }
+
+  const userStatusSnapshot = await getUserStatusSnapshot(decodedToken.uid)
+  const userStatus = String(userStatusSnapshot.val() || '').trim().toLowerCase()
+
+  if (DISABLED_ACCOUNT_STATUSES.has(userStatus)) {
+    return {
+      status: 403,
+      message: 'Compte desactive. Contacte un administrateur si besoin.',
+    }
+  }
+
+  return null
+}
+
 const isExpiredTimestamp = (value) => {
   if (!value) return false
 
@@ -171,6 +351,122 @@ const isExpiredTimestamp = (value) => {
 
   return date.getTime() <= Date.now()
 }
+
+const getCloudinaryConfig = () => {
+  const cloudName =
+    process.env.CLOUDINARY_CLOUD_NAME?.trim() ||
+    process.env.VITE_CLOUDINARY_CLOUD_NAME?.trim() ||
+    ''
+  const apiKey =
+    process.env.CLOUDINARY_API_KEY?.trim() ||
+    process.env.VITE_CLOUDINARY_API_KEY?.trim() ||
+    ''
+  const apiSecret =
+    process.env.CLOUDINARY_API_SECRET?.trim() ||
+    process.env.VITE_CLOUDINARY_API_SECRET?.trim() ||
+    ''
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error(
+      'Configuration Cloudinary incomplete. Renseigne CLOUDINARY_API_SECRET et les variables Cloudinary publiques.',
+    )
+  }
+
+  return {
+    cloudName,
+    apiKey,
+    apiSecret,
+  }
+}
+
+app.post('/api/auth/check-username', async (req, res) => {
+  if (isRateLimited(req, 'username-check')) {
+    return sendApiError(res, 429, 'Trop de tentatives. Reessaie dans quelques minutes.')
+  }
+
+  try {
+    const username = normalizeUsername(req.body?.username || '')
+
+    if (username.length < 3) {
+      return sendApiError(res, 400, 'Pseudo invalide.')
+    }
+
+    const match = await findUserByUsernameLookup(normalizeUsernameLookup(username))
+
+    return res.json({
+      available: !match,
+    })
+  } catch (error) {
+    console.error('Erreur POST /api/auth/check-username', error)
+    return sendApiError(res, 500, 'Impossible de verifier ce pseudo.')
+  }
+})
+
+app.post('/api/auth/resolve-login', async (req, res) => {
+  if (isRateLimited(req, 'login-resolve')) {
+    return sendApiError(res, 429, 'Trop de tentatives. Reessaie dans quelques minutes.')
+  }
+
+  try {
+    const identifier = String(req.body?.identifier || '').trim()
+
+    if (!identifier) {
+      return sendApiError(res, 400, 'Identifiant requis.')
+    }
+
+    if (isEmailLike(identifier)) {
+      return res.json({
+        email: normalizeEmail(identifier),
+        mode: 'email',
+      })
+    }
+
+    const match = await findUserByUsernameLookup(normalizeUsernameLookup(identifier))
+
+    if (!match?.profile?.email) {
+      return sendApiError(res, 404, 'Identifiants invalides.')
+    }
+
+    return res.json({
+      email: normalizeEmail(match.profile.email),
+      mode: 'username',
+    })
+  } catch (error) {
+    console.error('Erreur POST /api/auth/resolve-login', error)
+    return sendApiError(res, 500, "Impossible de resoudre cet identifiant de connexion.")
+  }
+})
+
+app.post('/api/uploads/sign', async (req, res) => {
+  const decodedToken = await authenticateRequest(req, res)
+
+  if (!decodedToken) {
+    return
+  }
+
+  try {
+    const { cloudName, apiKey, apiSecret } = getCloudinaryConfig()
+    const signedUpload = buildSignedUploadPayload({
+      uploadType: req.body?.uploadType,
+      userId: decodedToken.uid,
+      apiKey,
+      apiSecret,
+    })
+
+    return res.json({
+      ...signedUpload,
+      cloudName,
+    })
+  } catch (error) {
+    console.error('Erreur POST /api/uploads/sign', error)
+
+    if (error instanceof Error && error.message.startsWith("Type d'upload")) {
+      return sendApiError(res, 400, error.message)
+    }
+
+    return sendApiError(res, 500, "Impossible de preparer la signature d'upload.")
+  }
+})
 
 io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token
@@ -181,7 +477,14 @@ io.use(async (socket, next) => {
   }
 
   try {
-    const decodedToken = await admin.auth().verifyIdToken(token)
+    const decodedToken = await verifyAuthToken(token)
+    const accountError = await getAuthorizationFailure(decodedToken)
+
+    if (accountError) {
+      next(new Error(accountError.message))
+      return
+    }
+
     socket.data.userId = decodedToken.uid
     socket.data.userName = decodedToken.name || 'Utilisateur'
     next()
@@ -488,6 +791,16 @@ app.post('/api/messages/direct', async (req, res) => {
     const timestamp = new Date().toISOString()
     const currentSenderProfile = sanitizeProfile(senderProfile, senderId)
     const currentRecipientProfile = sanitizeProfile(recipientProfile, recipientId)
+    const sharedGroupIds = await getSharedGroupIdsForUsers(senderId, recipientId)
+
+    if (sharedGroupIds.length === 0) {
+      return sendApiError(
+        res,
+        403,
+        'Les messages prives sont reserves aux membres ayant au moins un groupe en commun.',
+      )
+    }
+
     const conversationRef = db.ref(`directConversations/${directConversationId}`)
     const existingConversationSnapshot = await conversationRef.once('value')
     const existingConversation = existingConversationSnapshot.val() || {}
@@ -501,6 +814,8 @@ app.post('/api/messages/direct', async (req, res) => {
       lastMessagePreview: sanitizedContent.substring(0, 100),
       lastMessageAuthorId: senderId,
       totalMessages: Number(existingConversation.totalMessages || 0) + 1,
+      sourceGroupId: existingConversation.sourceGroupId || sharedGroupIds[0],
+      sharedGroupIds,
       participants: {
         ...(existingConversation.participants || {}),
         [senderId]: true,
@@ -866,7 +1181,7 @@ io.on('connection', (socket) => {
 
       groupUsers[groupId][userId] = {
         socketId: socket.id,
-        userName: data.userName || defaultUserName,
+        userName: defaultUserName,
       }
 
       console.log(`👥 ${userId} a rejoint le groupe ${groupId}`)
@@ -909,7 +1224,7 @@ io.on('connection', (socket) => {
 
   // Recevoir et broadcaster un message
   socket.on('message:send', async (data = {}) => {
-    const { groupId, content, authorName, timestamp } = data
+    const { groupId, content } = data
     const trimmedContent = content?.trim()
 
     if (!groupId || !trimmedContent) {
@@ -933,9 +1248,8 @@ io.on('connection', (socket) => {
       }
 
       // Créer un ID unique pour le message
-      const safeTimestamp = timestamp || new Date().toISOString()
+      const safeTimestamp = new Date().toISOString()
       const safeAuthorName =
-        authorName ||
         groupUsers[groupId]?.[userId]?.userName ||
         defaultUserName
       const messageId = `${safeTimestamp}-${userId}`
@@ -973,10 +1287,30 @@ io.on('connection', (socket) => {
   })
 
   // Gérer l'indicateur de saisie
-  socket.on('typing:send', (data = {}) => {
-    const { groupId, userName, isTyping } = data
+  socket.on('typing:send', async (data = {}) => {
+    const { groupId, isTyping } = data
 
     if (!groupId) return
+
+    try {
+      const groupSnapshot = await getGroupSnapshot(groupId)
+
+      if (!groupSnapshot.exists()) {
+        socket.emit('error', { message: 'Groupe introuvable.' })
+        return
+      }
+
+      const group = groupSnapshot.val() || {}
+
+      if (!isGroupMember(group, userId)) {
+        socket.emit('error', { message: 'Acces refuse a ce groupe.' })
+        return
+      }
+    } catch (error) {
+      console.error('Erreur lors de la verification du typing:', error)
+      socket.emit('error', { message: 'Impossible de verifier la saisie en cours.' })
+      return
+    }
 
     if (!typingUsers[groupId]) {
       typingUsers[groupId] = {}
@@ -989,7 +1323,7 @@ io.on('connection', (socket) => {
       }
 
       typingUsers[groupId][userId] = {
-        userName: userName || groupUsers[groupId]?.[userId]?.userName || defaultUserName,
+        userName: groupUsers[groupId]?.[userId]?.userName || defaultUserName,
         timeout: setTimeout(() => {
           delete typingUsers[groupId][userId]
           io.to(groupId).emit('typing:update', {
@@ -1473,8 +1807,8 @@ httpServer.listen(PORT, () => {
 ║          🚀 SERVEUR SOCKET.IO DÉMARRÉ AVEC SUCCÈS         ║
 ╠════════════════════════════════════════════════════════════╣
 ║                                                            ║
-║  📡 Adresse: http://localhost:${PORT}                           ║
-║  🔗 CORS: http://localhost:5173                           ║
+║  📡 Adresse: http://localhost:${PORT}                      ║
+║  🔗 CORS: http://localhost:5174                           ║
 ║  🗄️  Firebase: ${process.env.FIREBASE_DATABASE_URL || 'Non configuré'}  ║
 ║                                                            ║
 ║  Événements disponibles:                                  ║
@@ -1489,7 +1823,7 @@ httpServer.listen(PORT, () => {
 })
 
 // Gestion des erreurs non capturées
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   console.error('❌ Promise rejection:', reason)
 })
 

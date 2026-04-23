@@ -22,6 +22,7 @@ export const useNotifications = () => {
 export function NotificationProvider({ children }) {
   const { currentUser } = useAuth()
   const currentUserId = currentUser?.uid || ''
+  const canReadNotifications = Boolean(currentUser?.uid && currentUser?.emailVerified)
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -32,7 +33,7 @@ export function NotificationProvider({ children }) {
 
   // Écouter les notifications en temps réel
   useEffect(() => {
-    if (!currentUserId) {
+    if (!canReadNotifications) {
       setNotifications([])
       setUnreadCount(0)
       setToastNotification(null)
@@ -100,7 +101,7 @@ export function NotificationProvider({ children }) {
       console.error('Erreur initialisation notifications:', error)
       setLoading(false)
     }
-  }, [currentUserId])
+  }, [canReadNotifications, currentUserId])
 
   useEffect(() => {
     return () => {
@@ -112,7 +113,7 @@ export function NotificationProvider({ children }) {
 
   const handleMarkAsRead = useCallback(
     async (notificationId) => {
-      if (!currentUser?.uid) return
+      if (!currentUserId) return
       try {
         await markNotificationAsRead(currentUserId, notificationId)
       } catch (error) {

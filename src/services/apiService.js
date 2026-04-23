@@ -1,30 +1,62 @@
 import { auth } from './firebaseConfig'
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_SOCKET_URL ||
-  'http://localhost:3001'
-).replace(/\/$/, '')
+const getApiBaseUrl = () => {
+  const configuredBaseUrl =
+    import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_SOCKET_URL ||
+    'http://localhost:3001'
 
-const buildApiUrl = (path) => `${API_BASE_URL}${path}`
+  if (typeof window === 'undefined') {
+    return configuredBaseUrl.replace(/\/$/, '')
+  }
 
-const getAuthHeaders = async () => {
+  try {
+    const parsedUrl = new URL(configuredBaseUrl)
+    const currentHostname = window.location.hostname
+    const usesLoopbackHost =
+      parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1'
+    const currentIsRemoteHost =
+      currentHostname &&
+      currentHostname !== 'localhost' &&
+      currentHostname !== '127.0.0.1'
+
+    if (usesLoopbackHost && currentIsRemoteHost) {
+      parsedUrl.hostname = currentHostname
+    }
+
+    return parsedUrl.toString().replace(/\/$/, '')
+  } catch {
+    return configuredBaseUrl.replace(/\/$/, '')
+  }
+}
+
+const buildApiUrl = (path) => `${getApiBaseUrl()}${path}`
+
+const createApiError = (message, status, data = null) => {
+  const error = new Error(message)
+  error.status = status
+  error.data = data
+  error.isAuthError = status === 401
+  return error
+}
+
+const getAuthHeaders = async (forceRefresh = false) => {
   const currentUser = auth.currentUser
 
   if (!currentUser) {
     throw new Error('Connexion requise pour acceder a cette ressource.')
   }
 
-  const token = await currentUser.getIdToken()
+  const token = await currentUser.getIdToken(forceRefresh)
 
   return {
     Authorization: `Bearer ${token}`,
   }
 }
 
-const apiRequest = async (path, options = {}) => {
+const performRequest = async (path, options = {}, forceRefreshToken = false) => {
   const { body, headers = {}, ...restOptions } = options
-  const authHeaders = await getAuthHeaders()
+  const authHeaders = await getAuthHeaders(forceRefreshToken)
   const response = await fetch(buildApiUrl(path), {
     ...restOptions,
     headers: {
@@ -37,8 +69,40 @@ const apiRequest = async (path, options = {}) => {
 
   const data = await response.json().catch(() => null)
 
+  return { response, data }
+}
+
+const apiRequest = async (path, options = {}) => {
+  let result = await performRequest(path, options)
+
+  if (result.response.status === 401 && auth.currentUser) {
+    result = await performRequest(path, options, true)
+  }
+
+  const { response, data } = result
+
   if (!response.ok) {
-    throw new Error(data?.error || 'Une erreur est survenue avec l API.')
+    throw createApiError(data?.error || 'Une erreur est survenue avec l API.', response.status, data)
+  }
+
+  return data
+}
+
+const publicApiRequest = async (path, options = {}) => {
+  const { body, headers = {}, ...restOptions } = options
+  const response = await fetch(buildApiUrl(path), {
+    ...restOptions,
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  })
+
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    throw createApiError(data?.error || 'Une erreur est survenue avec l API.', response.status, data)
   }
 
   return data
@@ -85,6 +149,24 @@ export const getInvitationByCodeApi = async (code) =>
 
 export const respondToInvitationCodeApi = async (code, payload) =>
   apiRequest(`/api/invitations/${encodeURIComponent(code)}/respond`, {
+    method: 'POST',
+    body: payload,
+  })
+
+export const createUploadSignatureApi = async (payload) =>
+  apiRequest('/api/uploads/sign', {
+    method: 'POST',
+    body: payload,
+  })
+
+export const resolveLoginIdentifierApi = async (payload) =>
+  publicApiRequest('/api/auth/resolve-login', {
+    method: 'POST',
+    body: payload,
+  })
+
+export const checkUsernameAvailabilityApi = async (payload) =>
+  publicApiRequest('/api/auth/check-username', {
     method: 'POST',
     body: payload,
   })

@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import ChatBox from '../components/ChatBox'
 import PostCard from '../components/PostCard'
 import { useGroups } from '../context/GroupContext'
 import { useAuth } from '../context/AuthContext'
+import { buildDirectMessagePath } from '../utils/directMessageRoute'
+import { buildProfilePath } from '../utils/profileRoute'
 import {
   createPostDiscussionApi,
   getPostDiscussionApi,
@@ -107,6 +109,7 @@ export default function GroupDetail() {
   const [activeTab, setActiveTab] = useState('overview')
   const [searchQuery, setSearchQuery] = useState('')
   const [showMenu, setShowMenu] = useState(false)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [selectedMember, setSelectedMember] = useState(null)
   const [notificationsMuted, setNotificationsMuted] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -139,11 +142,11 @@ export default function GroupDetail() {
   const currentUserId = currentUser?.uid || ''
 
   // Générer code d'invitation unique
-  const generateInvitationCode = () => {
+  const generateInvitationCode = useCallback(() => {
     const code = `${groupId.slice(0, 4).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`
     const link = `${window.location.origin}/invite/${code}`
     return { code, link }
-  }
+  }, [groupId])
 
   useEffect(() => {
     if (!showInviteModal || !currentUserId) {
@@ -270,7 +273,7 @@ export default function GroupDetail() {
     setInvitationCode(code)
     setInvitationLink(link)
     setInviteMessage(message)
-  }, [activeInviteAccess, group, showInviteModal])
+  }, [activeInviteAccess, generateInvitationCode, group, showInviteModal])
 
   const copyToClipboard = (text, label) => {
     navigator.clipboard.writeText(text)
@@ -453,14 +456,14 @@ export default function GroupDetail() {
       setMemberOnlineStatus(prev => {
         const updated = { ...prev }
         allMemberIds.forEach(id => {
-          if (!updated.hasOwnProperty(id)) {
+          if (!Object.prototype.hasOwnProperty.call(updated, id)) {
             updated[id] = getStableOnlineState(id, 0.4)
           }
         })
         return updated
       })
     }
-  }, [group?.adminId, group?.members])
+  }, [group])
 
   // Écouter les mises à jour du nombre de messages en temps réel via Socket.io
   useEffect(() => {
@@ -504,6 +507,27 @@ export default function GroupDetail() {
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+
+    if (isMobileSidebarOpen) {
+      document.body.style.overflow = 'hidden'
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isMobileSidebarOpen])
+
+  useEffect(() => {
+    const handleToggleGroupDetailMenu = () => {
+      setIsMobileSidebarOpen((current) => !current)
+    }
+
+    window.addEventListener('netthex:toggle-group-detail-menu', handleToggleGroupDetailMenu)
+    return () => window.removeEventListener('netthex:toggle-group-detail-menu', handleToggleGroupDetailMenu)
   }, [])
 
   const colors = [
@@ -767,6 +791,11 @@ export default function GroupDetail() {
   }
   const activeView = centerViewMeta[activeTab] || centerViewMeta.overview
 
+  const handleSelectTab = (tabId) => {
+    setActiveTab(tabId)
+    setIsMobileSidebarOpen(false)
+  }
+
   const isAdmin = currentUser?.uid === group?.adminId
   const isMember = currentUser?.uid && (group?.adminId === currentUser.uid || group?.members?.[currentUser.uid])
   const canManagePost = (post) => {
@@ -848,7 +877,31 @@ export default function GroupDetail() {
   }
 
   const handleStartPrivateChat = (member) => {
-    alert(`💬 Discussion avec ${member.name} - Fonctionnalité en développement`)
+    if (!currentUser) {
+      navigate('/auth')
+      return
+    }
+
+    if (!isMember) {
+      alert('🔒 Seuls les membres du groupe peuvent lancer une discussion privee.')
+      return
+    }
+
+    if (!member?.id || member.id === currentUser.uid) {
+      return
+    }
+
+    setSelectedMember(null)
+    setIsMobileSidebarOpen(false)
+    navigate(buildDirectMessagePath(member.id))
+  }
+
+  const handleOpenMemberProfile = (member) => {
+    if (!member?.id) return
+
+    setSelectedMember(null)
+    setIsMobileSidebarOpen(false)
+    navigate(buildProfilePath(member.id))
   }
 
   const resetCreatePostForm = () => {
@@ -1175,128 +1228,170 @@ export default function GroupDetail() {
     )
   }
 
+  const renderGroupSidebarContent = (isMobile = false) => (
+    <>
+      {isMobile && (
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Navigation</p>
+            <h2 className="mt-2 text-xl font-bold text-slate-900">Menu du groupe</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Fermer le menu du groupe"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-col items-center text-center">
+        {group.avatar ? (
+          <img
+            src={group.avatar}
+            alt={group.name}
+            className="h-20 w-20 rounded-full object-cover shadow-[0_18px_40px_rgba(14,165,233,0.25)]"
+          />
+        ) : (
+          <div className={`flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br ${gradientColor} text-3xl font-bold text-white shadow-[0_18px_40px_rgba(14,165,233,0.25)]`}>
+            {group.name?.charAt(0).toUpperCase()}
+          </div>
+        )}
+        <h2 className="mt-4 text-xl font-bold text-slate-900">{group.name}</h2>
+        <p className="mt-1 text-sm text-slate-400">{groupLocation}</p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-3 gap-3 text-center">
+        <div>
+          <p className="text-lg font-bold text-slate-900">{posts.length}</p>
+          <p className="text-[11px] text-slate-400">Posts</p>
+        </div>
+        <div>
+          <p className="text-lg font-bold text-slate-900">{Object.keys(group.members || {}).length || members.length || 1}</p>
+          <p className="text-[11px] text-slate-400">Membres</p>
+        </div>
+        <div>
+          <p className="text-lg font-bold text-slate-900">{totalMessages}</p>
+          <p className="text-[11px] text-slate-400">Chats</p>
+        </div>
+      </div>
+
+      <div className="mt-8 space-y-1 border-t border-dashed border-slate-200 pt-6">
+        {leftNavItems.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => handleSelectTab(item.id)}
+            className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition ${
+              activeTab === item.id
+                ? 'bg-white text-slate-900 shadow-[0_10px_30px_rgba(15,23,42,0.08)]'
+                : 'text-slate-500 hover:bg-white/80 hover:text-slate-900'
+            }`}
+          >
+            <span className="font-medium">{item.label}</span>
+            <span className="text-xs text-slate-400">{item.info}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-6 flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setIsMobileSidebarOpen(false)
+            if (isMember) {
+              handleLeaveGroup()
+            } else {
+              handleJoinGroup()
+            }
+          }}
+          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+            isMember ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' : 'bg-sky-600 text-white hover:bg-sky-700'
+          }`}
+        >
+          {isMember ? 'Quitter le groupe' : 'Rejoindre le groupe'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setIsMobileSidebarOpen(false)
+            setShowInviteModal(true)
+          }}
+          className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          Inviter des membres
+        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsMobileSidebarOpen(false)
+              setShowSettingsModal(true)
+            }}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Parametres du groupe
+          </button>
+        )}
+      </div>
+
+      <div className="mt-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900">Contacts</h3>
+          <button
+            type="button"
+            onClick={() => {
+              setIsMobileSidebarOpen(false)
+              setShowInviteModal(true)
+            }}
+            className="text-xs font-semibold text-sky-600 transition hover:text-sky-700"
+          >
+            Voir tout
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {quickContacts.map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              onClick={() => {
+                setIsMobileSidebarOpen(false)
+                handleStartPrivateChat(member)
+              }}
+              className="flex w-full items-center gap-3 rounded-2xl bg-white px-3 py-3 text-left shadow-[0_8px_28px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5"
+            >
+              <div className="relative">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-blue-500 text-sm font-bold text-white">
+                  {member.name.charAt(0).toUpperCase()}
+                </div>
+                {member.isOnline && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-slate-900">{member.name}</p>
+                <p className="text-xs text-slate-400">{member.role}</p>
+              </div>
+              <span className="text-xs text-slate-300">{formatShortDate(group.createdAt)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+
   return (
-    <div className="min-h-screen bg-[#eef2f7] text-slate-900">
-      <div className="w-full px-0 pt-0 pb-8">
-        <div className="overflow-hidden border border-white/70 bg-[#fcfcfe] shadow-[0_35px_120px_rgba(15,23,42,0.10)]">
+    <div className="min-h-screen bg-white text-slate-900 xl:bg-[#eef2f7]">
+      <div className="w-full px-0 pt-0 pb-0 xl:pb-8">
+        <div className="overflow-hidden bg-white xl:border xl:border-white/70 xl:bg-[#fcfcfe] xl:shadow-[0_35px_120px_rgba(15,23,42,0.10)]">
           <div className="grid xl:h-[calc(100vh-58px)] xl:grid-cols-[290px_minmax(0,1fr)_310px]">
-            <aside className="border-b border-slate-200/80 bg-[#f8f9fd] p-6 xl:overflow-y-auto xl:border-b-0 xl:border-r">
-              <div className="flex flex-col items-center text-center">
-                {group.avatar ? (
-                  <img
-                    src={group.avatar}
-                    alt={group.name}
-                    className="h-20 w-20 rounded-full object-cover shadow-[0_18px_40px_rgba(14,165,233,0.25)]"
-                  />
-                ) : (
-                  <div className={`flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br ${gradientColor} text-3xl font-bold text-white shadow-[0_18px_40px_rgba(14,165,233,0.25)]`}>
-                    {group.name?.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <h2 className="mt-4 text-xl font-bold text-slate-900">{group.name}</h2>
-                <p className="mt-1 text-sm text-slate-400">{groupLocation}</p>
-              </div>
-
-              <div className="mt-6 grid grid-cols-3 gap-3 text-center">
-                <div>
-                  <p className="text-lg font-bold text-slate-900">{posts.length}</p>
-                  <p className="text-[11px] text-slate-400">Posts</p>
-                </div>
-                <div>
-                  <p className="text-lg font-bold text-slate-900">{Object.keys(group.members || {}).length || members.length || 1}</p>
-                  <p className="text-[11px] text-slate-400">Membres</p>
-                </div>
-                <div>
-                  <p className="text-lg font-bold text-slate-900">{totalMessages}</p>
-                  <p className="text-[11px] text-slate-400">Chats</p>
-                </div>
-              </div>
-
-              <div className="mt-8 space-y-1 border-t border-dashed border-slate-200 pt-6">
-                {leftNavItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveTab(item.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition ${
-                      activeTab === item.id
-                        ? 'bg-white text-slate-900 shadow-[0_10px_30px_rgba(15,23,42,0.08)]'
-                        : 'text-slate-500 hover:bg-white/80 hover:text-slate-900'
-                    }`}
-                  >
-                    <span className="font-medium">{item.label}</span>
-                    <span className="text-xs text-slate-400">{item.info}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-6 flex flex-col gap-3">
-                <button
-                  type="button"
-                  onClick={isMember ? handleLeaveGroup : handleJoinGroup}
-                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-                    isMember ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' : 'bg-sky-600 text-white hover:bg-sky-700'
-                  }`}
-                >
-                  {isMember ? 'Quitter le groupe' : 'Rejoindre le groupe'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowInviteModal(true)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Inviter des membres
-                </button>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setShowSettingsModal(true)}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Parametres du groupe
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-8">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900">Contacts</h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowInviteModal(true)}
-                    className="text-xs font-semibold text-sky-600 transition hover:text-sky-700"
-                  >
-                    Voir tout
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  {quickContacts.map((member) => (
-                    <button
-                      key={member.id}
-                      type="button"
-                      onClick={() => handleStartPrivateChat(member)}
-                      className="flex w-full items-center gap-3 rounded-2xl bg-white px-3 py-3 text-left shadow-[0_8px_28px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5"
-                    >
-                      <div className="relative">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-blue-500 text-sm font-bold text-white">
-                          {member.name.charAt(0).toUpperCase()}
-                        </div>
-                        {member.isOnline && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-slate-900">{member.name}</p>
-                        <p className="text-xs text-slate-400">{member.role}</p>
-                      </div>
-                      <span className="text-xs text-slate-300">{formatShortDate(group.createdAt)}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <aside className="hidden border-b border-slate-200/80 bg-[#f8f9fd] p-6 xl:block xl:overflow-y-auto xl:border-b-0 xl:border-r">
+              {renderGroupSidebarContent()}
             </aside>
 
             <section className="min-w-0 border-b border-slate-200/80 bg-white xl:overflow-y-auto xl:border-b-0 xl:border-r">
-              <div className="border-b border-slate-200/80 px-5 py-6 sm:px-8">
+              <div className="border-b border-slate-200/80 px-4 py-4 sm:px-8 sm:py-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="relative max-w-xl flex-1">
                     <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-300">⌕</span>
@@ -1334,7 +1429,7 @@ export default function GroupDetail() {
                       onClick={handleOpenCreatePostModal}
                       disabled={!isMember}
                       title={isMember ? 'Creer un post' : 'Seuls les membres du groupe peuvent publier'}
-                      className={`rounded-full px-5 py-3 text-sm font-semibold text-white transition ${
+                      className={`flex-1 rounded-full px-5 py-3 text-sm font-semibold text-white transition sm:flex-none ${
                         isMember
                           ? 'bg-gradient-to-r from-fuchsia-500 to-sky-500 shadow-[0_18px_35px_rgba(168,85,247,0.24)] hover:brightness-105'
                           : 'cursor-not-allowed bg-slate-300 shadow-none'
@@ -1409,7 +1504,7 @@ export default function GroupDetail() {
                   </div>
                 </div>
 
-                <div className="mt-8 rounded-[30px] border border-slate-200 bg-[#fbfcff] p-5 shadow-[0_14px_35px_rgba(15,23,42,0.04)]">
+                <div className="mt-6 border-b border-slate-200 bg-white px-4 py-5 shadow-none sm:mt-8 sm:rounded-[30px] sm:border sm:bg-[#fbfcff] sm:p-5 sm:shadow-[0_14px_35px_rgba(15,23,42,0.04)]">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="max-w-2xl">
                       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-500">{activeView.badge}</p>
@@ -1417,13 +1512,13 @@ export default function GroupDetail() {
                       <p className="mt-2 text-sm leading-7 text-slate-500">{activeView.description}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-500 shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
+                      <span className="rounded-full bg-[#f4f7fc] px-4 py-2 text-sm font-medium text-slate-500 shadow-none sm:bg-white sm:shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
                         {Object.keys(group.members || {}).length || members.length || 1} membres
                       </span>
-                      <span className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-500 shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
+                      <span className="rounded-full bg-[#f4f7fc] px-4 py-2 text-sm font-medium text-slate-500 shadow-none sm:bg-white sm:shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
                         {posts.length} posts
                       </span>
-                      <span className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-500 shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
+                      <span className="rounded-full bg-[#f4f7fc] px-4 py-2 text-sm font-medium text-slate-500 shadow-none sm:bg-white sm:shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
                         {totalMessages} messages
                       </span>
                     </div>
@@ -1448,9 +1543,9 @@ export default function GroupDetail() {
                 </div>
               </div>
 
-              <div className="bg-[#fcfdff] px-5 py-6 sm:px-8">
+              <div className="bg-white px-4 py-5 sm:bg-[#fcfdff] sm:px-8 sm:py-6">
                 {!isMember ? (
-                  <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center shadow-none sm:rounded-[30px] sm:px-6 sm:py-16 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                     <p className="text-5xl">🔒</p>
                     <p className="mt-4 text-lg font-semibold text-slate-900">Vous ne faites pas partie de ce groupe</p>
                     <p className="mt-2 text-sm text-slate-400">
@@ -1467,7 +1562,7 @@ export default function GroupDetail() {
                 ) : activeTab === 'overview' ? (
                   <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
                     <div className="space-y-5">
-                      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-none sm:rounded-[28px] sm:p-6 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                         {group.avatar && (
                           <div className="mb-6 flex justify-center">
                             <img
@@ -1496,7 +1591,7 @@ export default function GroupDetail() {
                         </div>
                       </div>
 
-                      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-none sm:rounded-[28px] sm:p-6 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-bold text-slate-900">Publications recentes</h3>
                           <button
@@ -1532,7 +1627,7 @@ export default function GroupDetail() {
                     </div>
 
                     <div className="space-y-5">
-                      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-none sm:rounded-[28px] sm:p-6 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-bold text-slate-900">Membres actifs</h3>
                           <button
@@ -1566,7 +1661,7 @@ export default function GroupDetail() {
                         </div>
                       </div>
 
-                      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-none sm:rounded-[28px] sm:p-6 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-bold text-slate-900">Medias partages</h3>
                           <button
@@ -1614,7 +1709,7 @@ export default function GroupDetail() {
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center shadow-none sm:rounded-[30px] sm:px-6 sm:py-16 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                       <p className="text-5xl">{searchQuery ? '🔍' : '📭'}</p>
                       <p className="mt-4 text-lg font-semibold text-slate-900">
                         {searchQuery ? 'Aucun résultat trouvé' : 'Aucune publication pour le moment'}
@@ -1632,7 +1727,7 @@ export default function GroupDetail() {
                           key={member.id}
                           type="button"
                           onClick={() => setSelectedMember(member)}
-                          className="flex items-center gap-4 rounded-[28px] border border-slate-200 bg-white px-5 py-5 text-left shadow-[0_16px_40px_rgba(15,23,42,0.05)] transition hover:border-sky-200"
+                          className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left shadow-none transition hover:border-sky-200 sm:rounded-[28px] sm:px-5 sm:py-5 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]"
                         >
                           <div className="relative">
                             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 text-lg font-bold text-white">
@@ -1651,7 +1746,7 @@ export default function GroupDetail() {
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center shadow-none sm:rounded-[30px] sm:px-6 sm:py-16 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                       <p className="text-5xl">👥</p>
                       <p className="mt-4 text-lg font-semibold text-slate-900">Aucun membre trouvé</p>
                     </div>
@@ -1660,7 +1755,7 @@ export default function GroupDetail() {
                   mediaPosts.length > 0 ? (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                       {mediaPosts.map((post) => (
-                        <div key={post.id} className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                        <div key={post.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-none sm:rounded-[28px] sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                           <img src={post.imageUrl} alt={post.authorName || 'Media'} className="h-52 w-full object-cover" />
                           <div className="p-4">
                             <p className="font-semibold text-slate-900">{post.authorName || 'Membre'}</p>
@@ -1670,13 +1765,13 @@ export default function GroupDetail() {
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-[30px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center shadow-none sm:rounded-[30px] sm:px-6 sm:py-16 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                       <p className="text-5xl">🖼️</p>
                       <p className="mt-4 text-lg font-semibold text-slate-900">Aucun media disponible</p>
                     </div>
                   )
                 ) : activeTab === 'about' ? (
-                  <div className="rounded-[30px] border border-slate-200 bg-white p-8 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-none sm:rounded-[30px] sm:p-8 sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-500">A propos du groupe</p>
                     <h2 className="mt-3 text-3xl font-bold text-slate-900">{group.name}</h2>
                     <p className="mt-4 text-sm leading-7 text-slate-500">{group.description}</p>
@@ -1700,14 +1795,14 @@ export default function GroupDetail() {
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-[30px] bg-white shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                  <div className="overflow-hidden rounded-2xl bg-white shadow-none sm:rounded-[30px] sm:shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
                     <ChatBox groupId={groupId} theme="light" />
                   </div>
                 )}
               </div>
             </section>
 
-            <aside className="bg-[#f8f9fd] p-6 xl:overflow-y-auto">
+            <aside className="hidden bg-[#f8f9fd] p-6 xl:block xl:overflow-y-auto">
               <div className="bg-white p-5 shadow-[0_12px_35px_rgba(15,23,42,0.05)]">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">Membres en ligne</h3>
@@ -1862,6 +1957,21 @@ export default function GroupDetail() {
         </div>
       </div>
 
+      {isMobileSidebarOpen && (
+        <div className="fixed inset-0 z-[55] bg-slate-950/35 backdrop-blur-sm xl:hidden">
+          <button
+            type="button"
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="absolute inset-0"
+            aria-label="Fermer le menu du groupe"
+          />
+
+          <aside className="absolute left-0 top-0 h-full w-full overflow-y-auto bg-[#f8f9fd] p-5 shadow-[0_30px_80px_rgba(15,23,42,0.18)] sm:w-[min(24rem,90vw)]">
+            {renderGroupSidebarContent(true)}
+          </aside>
+        </div>
+      )}
+
       {/* Modale profil membre */}
       {selectedMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1920,6 +2030,7 @@ export default function GroupDetail() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleOpenMemberProfile(selectedMember)}
                   className="flex-1 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
                 >
                   👤 Voir le profil

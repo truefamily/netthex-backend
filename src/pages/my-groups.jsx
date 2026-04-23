@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGroups } from '../context/GroupContext'
 import { useAuth } from '../context/AuthContext'
@@ -38,24 +38,32 @@ function getInitials(name) {
 function getTone(index) {
   const tones = [
     {
-      banner: 'from-[#0a66c2] to-[#378fe9]',
-      chip: 'bg-sky-100 text-sky-700',
-      strong: 'bg-sky-600',
+      cover:
+        'linear-gradient(135deg, rgba(16,24,40,0.10), rgba(16,24,40,0.04)), linear-gradient(135deg, #b6d8ff 0%, #e8f2ff 100%)',
+      accent: 'bg-[#2f80ed]',
+      soft: 'bg-[#eef5ff] text-[#2f80ed]',
+      border: 'border-[#d8e7ff]',
     },
     {
-      banner: 'from-[#1d2226] to-[#4b5563]',
-      chip: 'bg-slate-100 text-slate-700',
-      strong: 'bg-slate-700',
+      cover:
+        'linear-gradient(135deg, rgba(16,24,40,0.08), rgba(16,24,40,0.03)), linear-gradient(135deg, #ffd7c6 0%, #fff1e9 100%)',
+      accent: 'bg-[#f2994a]',
+      soft: 'bg-[#fff3ea] text-[#f2994a]',
+      border: 'border-[#ffe1cf]',
     },
     {
-      banner: 'from-[#057642] to-[#159f6b]',
-      chip: 'bg-emerald-100 text-emerald-700',
-      strong: 'bg-emerald-600',
+      cover:
+        'linear-gradient(135deg, rgba(16,24,40,0.08), rgba(16,24,40,0.03)), linear-gradient(135deg, #c9f1de 0%, #eefbf4 100%)',
+      accent: 'bg-[#27ae60]',
+      soft: 'bg-[#edf9f1] text-[#27ae60]',
+      border: 'border-[#d5f3e0]',
     },
     {
-      banner: 'from-[#5b5bd6] to-[#7c7cf4]',
-      chip: 'bg-indigo-100 text-indigo-700',
-      strong: 'bg-indigo-600',
+      cover:
+        'linear-gradient(135deg, rgba(16,24,40,0.10), rgba(16,24,40,0.04)), linear-gradient(135deg, #e3d9ff 0%, #f4efff 100%)',
+      accent: 'bg-[#6c63ff]',
+      soft: 'bg-[#f1eeff] text-[#6c63ff]',
+      border: 'border-[#e5deff]',
     },
   ]
 
@@ -65,29 +73,190 @@ function getTone(index) {
 function getActivityScore(group) {
   const posts = Object.keys(group.posts || {}).length
   const members = Object.keys(group.members || {}).length
-  return Math.min(96, 22 + posts * 12 + members * 3)
+  return Math.min(98, 28 + posts * 9 + members * 3)
 }
 
 function getActivityLabel(group) {
-  const posts = Object.keys(group.posts || {}).length
-  const members = Object.keys(group.members || {}).length
+  const score = getActivityScore(group)
 
-  if (posts >= 10 || members >= 18) return 'Forte activite'
-  if (posts >= 4 || members >= 8) return 'Bonne dynamique'
-  if (posts >= 1 || members >= 3) return 'En progression'
-  return 'A activer'
+  if (score >= 80) return 'Tres actif'
+  if (score >= 60) return 'Bien lance'
+  if (score >= 40) return 'En progression'
+  return 'A relancer'
+}
+
+function getGroupTrackLabel(group) {
+  const memberCount = Object.keys(group.members || {}).length || 0
+  const postCount = Object.keys(group.posts || {}).length || 0
+
+  if (postCount >= 10) return 'Groupe phare'
+  if (memberCount >= 10) return 'Communaute en croissance'
+  if (postCount >= 3) return 'Groupe en animation'
+  return 'Groupe a suivre'
+}
+
+function buildPreviewMembers(group, index) {
+  const palette = [
+    'bg-[#ffe2d2] text-[#c25b22]',
+    'bg-[#dff3e8] text-[#248a54]',
+    'bg-[#e8ebff] text-[#4d56d5]',
+    'bg-[#dff0ff] text-[#2571c7]',
+    'bg-[#fff1cc] text-[#b17900]',
+  ]
+
+  return Array.from({ length: Math.min(4, Math.max(2, Object.keys(group.members || {}).length || 2)) }, (_, memberIndex) => ({
+    id: `${group.id}-member-${memberIndex}`,
+    label: getInitials(group.name.split(' ')[memberIndex] || group.name || 'G'),
+    className: palette[(index + memberIndex) % palette.length],
+  }))
+}
+
+function buildCoursePills(group, currentUserId) {
+  const items = [group.adminId === currentUserId ? 'Admin' : 'Membre']
+
+  if (Object.keys(group.posts || {}).length >= 6) items.push('Actif')
+  if (Object.keys(group.members || {}).length >= 8) items.push('Populaire')
+
+  return items.slice(0, 2)
+}
+
+function MiniStat({ label, value, toneClass }) {
+  return (
+    <div className="rounded-[22px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.92))] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_24px_rgba(15,23,42,0.05)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+      <p className={`mt-2 text-xl font-bold tracking-tight text-slate-950 ${toneClass || ''}`}>{value}</p>
+    </div>
+  )
+}
+
+function GroupCard({ group, index, currentUserId, onOpen }) {
+  const tone = getTone(index)
+  const memberCount = Object.keys(group.members || {}).length || 0
+  const postCount = Object.keys(group.posts || {}).length || 0
+  const isAdmin = group.adminId === currentUserId
+  const activityScore = getActivityScore(group)
+  const previewMembers = buildPreviewMembers(group, index)
+  const coursePills = buildCoursePills(group, currentUserId)
+  const groupPhoto = group.coverUrl || group.cover || group.avatarUrl || group.avatar || ''
+  const avatarPhoto = group.avatarUrl || group.avatar || ''
+  const coverImage = groupPhoto
+    ? `linear-gradient(180deg, rgba(15,23,42,0.06), rgba(15,23,42,0.12)), url(${groupPhoto})`
+    : tone.cover
+
+  return (
+    <article className={`group overflow-hidden rounded-[30px] border bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_22px_60px_rgba(15,23,42,0.08)] transition duration-300 hover:-translate-y-1.5 hover:shadow-[0_30px_75px_rgba(15,23,42,0.12)] ${tone.border}`}>
+      <div className="relative h-52 overflow-hidden">
+        <div
+          className="netthex-dark-media-preserve absolute inset-0 bg-cover bg-center transition duration-500 group-hover:scale-[1.04]"
+          style={{ backgroundImage: coverImage }}
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.10),rgba(15,23,42,0.62))]" />
+
+        <div className="absolute left-5 top-5 flex flex-wrap items-center gap-2">
+          {coursePills.map((pill) => (
+            <span
+              key={pill}
+              className="inline-flex rounded-full border border-white/15 bg-white/12 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur-sm"
+            >
+              {pill}
+            </span>
+          ))}
+        </div>
+
+        <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-4">
+          <div className={`flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[20px] text-sm font-bold tracking-[0.14em] text-white shadow-[0_16px_28px_rgba(15,23,42,0.20)] ${tone.accent}`}>
+            {avatarPhoto ? (
+              <img src={avatarPhoto} alt={group.name} className="h-full w-full object-cover" />
+            ) : (
+              <span>{getInitials(group.name)}</span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpen}
+            className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"
+          >
+            Ouvrir
+          </button>
+        </div>
+      </div>
+
+      <div className="px-5 pb-5 pt-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              {isAdmin ? 'Tu geres cet espace' : 'Dans ton cercle'}
+            </p>
+            <h2 className="mt-2 line-clamp-2 text-[24px] font-bold leading-7 tracking-tight text-slate-950">
+              {group.name}
+            </h2>
+            <p className="mt-2 text-sm font-medium text-slate-500">{getGroupTrackLabel(group)}</p>
+          </div>
+
+          <span className={`inline-flex shrink-0 rounded-full px-3 py-2 text-xs font-semibold shadow-[0_8px_18px_rgba(15,23,42,0.06)] ${tone.soft}`}>
+            Score {activityScore}
+          </span>
+        </div>
+
+        <p className="mt-4 line-clamp-3 text-sm leading-7 text-slate-500">
+          {group.description || 'Un espace collaboratif pret a accueillir plus de conversations, de ressources et de membres.'}
+        </p>
+
+        <div className="mt-5 rounded-[24px] border border-slate-100 bg-slate-50/80 px-4 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Equipe visible</p>
+              <div className="mt-3 flex items-center">
+                {previewMembers.map((member, memberIndex) => (
+                  <span
+                    key={member.id}
+                    className={`-ml-2 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold first:ml-0 ${member.className}`}
+                    style={{ zIndex: previewMembers.length - memberIndex }}
+                  >
+                    {member.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Derniere maj</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{formatCompactDate(group.updatedAt || group.createdAt)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-3 gap-3">
+          <MiniStat label="Activite" value={getActivityLabel(group)} />
+          <MiniStat label="Posts" value={postCount} />
+          <MiniStat label="Membres" value={memberCount} />
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between gap-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+            <span>Niveau d attention</span>
+            <span>{activityScore}%</span>
+          </div>
+          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
+            <div className={`h-full rounded-full ${tone.accent}`} style={{ width: `${activityScore}%` }} />
+          </div>
+        </div>
+      </div>
+    </article>
+  )
 }
 
 function SkeletonCard() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-      <div className="h-20 animate-pulse bg-slate-100" />
+    <div className="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]">
+      <div className="h-52 animate-pulse bg-slate-100" />
       <div className="space-y-4 p-5">
         <div className="flex items-center gap-3">
-          <div className="h-12 w-12 animate-pulse rounded-xl bg-slate-200" />
+          <div className="h-16 w-16 animate-pulse rounded-[22px] bg-slate-200" />
           <div className="space-y-2">
-            <div className="h-3 w-20 animate-pulse rounded-full bg-slate-200" />
-            <div className="h-5 w-40 animate-pulse rounded-full bg-slate-200" />
+            <div className="h-4 w-20 animate-pulse rounded-full bg-slate-100" />
+            <div className="h-6 w-40 animate-pulse rounded-full bg-slate-200" />
           </div>
         </div>
         <div className="space-y-2">
@@ -96,7 +265,7 @@ function SkeletonCard() {
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           {[0, 1, 2].map((item) => (
-            <div key={item} className="h-16 animate-pulse rounded-xl bg-slate-100" />
+            <div key={item} className="h-20 animate-pulse rounded-[20px] bg-slate-100" />
           ))}
         </div>
       </div>
@@ -107,10 +276,8 @@ function SkeletonCard() {
 export default function MyGroupsPage() {
   const navigate = useNavigate()
   const { groups, loading } = useGroups()
-  const { currentUser, userData } = useAuth()
+  const { currentUser } = useAuth()
   const currentUserId = currentUser?.uid || ''
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
 
   const allGroups = useMemo(
     () => Object.entries(groups || {}).map(([id, group]) => ({ id, ...group })),
@@ -126,355 +293,51 @@ export default function MyGroupsPage() {
   )
 
   const filteredGroups = useMemo(() => {
-    const query = search.trim().toLowerCase()
-
-    return joinedGroups
-      .filter((group) => {
-        if (filter === 'admin') return group.adminId === currentUserId
-        if (filter === 'member') return group.adminId !== currentUserId
-        return true
-      })
-      .filter((group) => {
-        if (!query) return true
-        return [group.name, group.description, group.slug]
-          .filter(Boolean)
-          .some((value) => value.toLowerCase().includes(query))
-      })
-      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
-  }, [currentUserId, filter, joinedGroups, search])
-
-  const adminGroups = joinedGroups.filter((group) => group.adminId === currentUserId).length
-  const memberGroups = joinedGroups.length - adminGroups
-  const totalPosts = joinedGroups.reduce((sum, group) => sum + Object.keys(group.posts || {}).length, 0)
-  const totalMembers = joinedGroups.reduce((sum, group) => sum + Object.keys(group.members || {}).length, 0)
-  const averageScore = joinedGroups.length
-    ? Math.round(joinedGroups.reduce((sum, group) => sum + getActivityScore(group), 0) / joinedGroups.length)
-    : 0
-  const username = userData?.username || currentUser?.displayName || 'membre'
-
-  const topGroups = useMemo(
-    () =>
-      [...joinedGroups]
-        .sort((a, b) => getActivityScore(b) - getActivityScore(a))
-        .slice(0, 4),
-    [joinedGroups],
-  )
-
-  const filterItems = [
-    { id: 'all', label: 'Tous', count: joinedGroups.length },
-    { id: 'admin', label: 'Admin', count: adminGroups },
-    { id: 'member', label: 'Membre', count: memberGroups },
-  ]
+    return [...joinedGroups].sort(
+      (a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0),
+    )
+  }, [joinedGroups])
 
   return (
-    <div className="min-h-screen bg-[#f3f2ef] text-slate-900">
-      <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="overflow-hidden rounded-2xl border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-            <div className="h-24 bg-[linear-gradient(135deg,#0a66c2_0%,#378fe9_50%,#70b5f9_100%)]" />
-            <div className="px-5 pb-5 sm:px-6">
-              <div className="-mt-8 flex h-16 w-16 items-center justify-center rounded-2xl border-4 border-white bg-slate-950 text-base font-semibold tracking-[0.16em] text-white shadow-[0_10px_24px_rgba(15,23,42,0.18)]">
-                {getInitials(username)}
-              </div>
-
-              <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-                <div className="max-w-3xl">
-                  <p className="text-sm font-medium text-sky-700">Vos groupes</p>
-                  <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-                    Un espace plus pro pour suivre vos communautes.
-                  </h1>
-                  <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-500">
-                    Retrouvez les groupes que vous administrez ou suivez, filtrez les espaces actifs et ouvrez rapidement les communautés qui demandent votre attention.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => navigate('/')}
-                  className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                >
-                  Retour a l accueil
-                </button>
-              </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p className="text-xs font-medium text-slate-500">Groupes suivis</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">{joinedGroups.length}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p className="text-xs font-medium text-slate-500">Posts visibles</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">{totalPosts}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <p className="text-xs font-medium text-slate-500">Score moyen</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">{averageScore}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <aside className="space-y-4">
-            <section className="rounded-2xl border border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-              <p className="text-xs font-medium text-slate-500">Profil</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">{username}</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                {adminGroups > 0
-                  ? `Vous administrez ${adminGroups} groupe${adminGroups > 1 ? 's' : ''} et participez a ${memberGroups}.`
-                  : `Vous participez actuellement a ${memberGroups} groupe${memberGroups > 1 ? 's' : ''}.`}
-              </p>
-
-              <div className="mt-5 grid gap-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-slate-500">Audience totale</span>
-                    <span className="text-base font-semibold text-slate-950">{totalMembers}</span>
+    <div className="min-h-0 h-full overflow-y-auto overscroll-y-contain bg-[radial-gradient(circle_at_top_left,rgba(47,128,237,0.18),transparent_22%),radial-gradient(circle_at_top_right,rgba(242,153,74,0.12),transparent_26%),linear-gradient(180deg,#edf1f7_0%,#f7f3eb_100%)] px-3 py-4 text-slate-900 sm:px-5 lg:px-6">
+      <main className="mx-auto flex min-h-full min-w-0 w-full max-w-[1480px]">
+        <div className="flex-1 overflow-hidden rounded-[40px] border border-white/80 bg-[#fffdf8] p-3 shadow-[0_35px_120px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.9)]">
+          <div className="overflow-hidden rounded-[34px] border border-white/80 bg-[#fcfbf7] shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+            <div className="px-5 py-6 sm:px-6 lg:px-8 lg:py-8">
+              <section className="rounded-[30px] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)] sm:px-6">
+                {loading ? (
+                  <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+                    {[0, 1, 2].map((item) => (
+                      <SkeletonCard key={item} />
+                    ))}
                   </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-slate-500">Administrateur</span>
-                    <span className="text-base font-semibold text-slate-950">{adminGroups}</span>
+                ) : filteredGroups.length === 0 ? (
+                  <div className="rounded-[28px] border border-dashed border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fafc)] px-6 py-16 text-center shadow-[0_12px_28px_rgba(15,23,42,0.04)]">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[22px] bg-slate-100 text-slate-400">
+                      <Icon path="M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9ZM7 9h10M7 13h6" className="h-7 w-7" />
+                    </div>
+                    <h3 className="mt-5 text-2xl font-bold text-slate-950">Aucun groupe dans cette vue</h3>
+                    <p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-slate-500">
+                      Aucun groupe a afficher pour le moment.
+                    </p>
                   </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-slate-500">Membre</span>
-                    <span className="text-base font-semibold text-slate-950">{memberGroups}</span>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-              <p className="text-xs font-medium text-slate-500">Repere</p>
-              <h2 className="mt-2 text-lg font-semibold text-slate-950">Ordre de lecture</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Commencez par les groupes admin, puis passez aux groupes membres. Cette logique rend la page plus proche d un tableau de bord professionnel.
-              </p>
-            </section>
-          </aside>
-        </section>
-
-        <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-300/80 bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-wrap gap-2">
-                  {filterItems.map((item) => {
-                    const isActive = filter === item.id
-
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setFilter(item.id)}
-                        className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          isActive
-                            ? 'bg-[#0a66c2] text-white'
-                            : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span>{item.label}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${isActive ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                          {item.count}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                <div className="w-full lg:max-w-md">
-                  <label htmlFor="my-groups-search" className="sr-only">
-                    Chercher un groupe
-                  </label>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-300">
-                      <Icon path="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15a7.5 7.5 0 0 1 0 15Z" className="h-4 w-4" />
-                    </span>
-                    <input
-                      id="my-groups-search"
-                      type="text"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Rechercher un groupe"
-                      className="w-full rounded-full border border-slate-300 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-900 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="grid gap-4">
-                {[0, 1, 2, 3].map((item) => (
-                  <SkeletonCard key={item} />
-                ))}
-              </div>
-            ) : filteredGroups.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[18px] bg-slate-100 text-slate-500">
-                  <Icon path="M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9ZM7 9h10M7 13h6" className="h-7 w-7" />
-                </div>
-                <h3 className="mt-5 text-2xl font-semibold text-slate-950">Aucun groupe dans cette vue</h3>
-                <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-slate-500">
-                  Ajustez le filtre ou la recherche pour retrouver plus facilement vos groupes.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredGroups.map((group, index) => {
-                  const tone = getTone(index)
-                  const memberCount = Object.keys(group.members || {}).length || 0
-                  const postCount = Object.keys(group.posts || {}).length || 0
-                  const isAdmin = group.adminId === currentUserId
-                  const score = getActivityScore(group)
-                  const activity = getActivityLabel(group)
-
-                  return (
-                    <article
-                      key={group.id}
-                      className="overflow-hidden rounded-2xl border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition hover:shadow-[0_10px_28px_rgba(15,23,42,0.06)]"
-                    >
-                      <div className={`h-16 bg-gradient-to-r ${tone.banner}`} />
-
-                      <div className="p-5">
-                        <div className="-mt-10 flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-3">
-                              <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border-4 border-white ${tone.strong} text-sm font-semibold tracking-[0.14em] text-white shadow-[0_8px_18px_rgba(15,23,42,0.14)]`}>
-                                {getInitials(group.name)}
-                              </div>
-                              <div className="min-w-0 pt-8">
-                                <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold ${tone.chip}`}>
-                                  {isAdmin ? 'Administrateur' : 'Membre'}
-                                </span>
-                                <h2 className="mt-2 truncate text-xl font-semibold text-slate-950">
-                                  {group.name}
-                                </h2>
-                              </div>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/group/${group.slug}`)}
-                            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-50"
-                          >
-                            Ouvrir
-                          </button>
-                        </div>
-
-                        <p className="mt-4 line-clamp-3 text-sm leading-7 text-slate-500">
-                          {group.description || 'Ce groupe n a pas encore de description detaillee.'}
-                        </p>
-
-                        <div className="mt-5 grid gap-3 sm:grid-cols-[1.1fr_0.9fr_0.9fr_1fr]">
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                            <p className="text-xs font-medium text-slate-500">Activite</p>
-                            <p className="mt-2 text-base font-semibold text-slate-950">{activity}</p>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                            <p className="text-xs font-medium text-slate-500">Membres</p>
-                            <p className="mt-2 text-2xl font-semibold text-slate-950">{memberCount}</p>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                            <p className="text-xs font-medium text-slate-500">Posts</p>
-                            <p className="mt-2 text-2xl font-semibold text-slate-950">{postCount}</p>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                            <p className="text-xs font-medium text-slate-500">Mise a jour</p>
-                            <p className="mt-2 text-sm font-semibold text-slate-950">{formatCompactDate(group.updatedAt || group.createdAt)}</p>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <p className="text-xs font-medium text-slate-500">Performance estimee</p>
-                              <p className="mt-2 text-sm font-semibold text-slate-950">Score d activite {score}</p>
-                            </div>
-                            <span className="text-2xl font-semibold text-slate-950">{score}</span>
-                          </div>
-                          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
-                            <div className={`h-full rounded-full ${tone.strong}`} style={{ width: `${score}%` }} />
-                          </div>
-                        </div>
-
-                        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-                          <div className="flex flex-wrap gap-2">
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
-                              /{group.slug || 'sans-slug'}
-                            </span>
-                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone.chip}`}>
-                              {isAdmin ? 'Vous administrez ce groupe' : 'Vous suivez ce groupe'}
-                            </span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/group/${group.slug}`)}
-                            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 transition hover:text-sky-700"
-                          >
-                            Voir le detail
-                            <Icon path="M5 12h14M13 5l7 7-7 7" className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <aside className="space-y-4">
-            <section className="rounded-2xl border border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-              <p className="text-xs font-medium text-slate-500">A suivre</p>
-              <h2 className="mt-2 text-lg font-semibold text-slate-950">Groupes prioritaires</h2>
-
-              <div className="mt-4 space-y-3">
-                {topGroups.length === 0 ? (
-                  <p className="text-sm leading-6 text-slate-500">
-                    Aucun groupe prioritaire a afficher pour le moment.
-                  </p>
                 ) : (
-                  topGroups.map((group, index) => {
-                    const tone = getTone(index)
-
-                    return (
-                      <button
+                  <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+                    {filteredGroups.map((group, index) => (
+                      <GroupCard
                         key={group.id}
-                        type="button"
-                        onClick={() => navigate(`/group/${group.slug}`)}
-                        className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:bg-white"
-                      >
-                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${tone.strong} text-xs font-semibold tracking-[0.14em] text-white`}>
-                          {getInitials(group.name)}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-slate-950">{group.name}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {getActivityLabel(group)} · {Object.keys(group.posts || {}).length} posts
-                          </p>
-                        </div>
-                        <Icon path="M9 5l7 7-7 7" className="h-4 w-4 shrink-0 text-slate-400" />
-                      </button>
-                    )
-                  })
+                        group={group}
+                        index={index}
+                        currentUserId={currentUserId}
+                        onOpen={() => navigate(`/group/${group.slug}`)}
+                      />
+                    ))}
+                  </div>
                 )}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.08)]">
-              <p className="text-xs font-medium text-slate-500">Conseil</p>
-              <h2 className="mt-2 text-lg font-semibold text-slate-950">Mode de lecture</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Commencez par les groupes admin puis passez aux groupes membres. Cette logique garde la page claire et proche d un dashboard reseau pro.
-              </p>
-            </section>
-          </aside>
-        </section>
+              </section>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   )

@@ -37,9 +37,21 @@ self.addEventListener('activate', (event) => {
 // Stratégie de cache: Network First, fallback to Cache
 self.addEventListener('fetch', (event) => {
   const { request } = event
+  const requestUrl = new URL(request.url)
 
   // Ignorer les requêtes non-GET
   if (request.method !== 'GET') {
+    return
+  }
+
+  // Ne jamais intercepter les ressources du serveur de dev Vite / HMR
+  if (
+    requestUrl.pathname.startsWith('/@vite/') ||
+    requestUrl.pathname.startsWith('/src/') ||
+    requestUrl.pathname.startsWith('/node_modules/') ||
+    requestUrl.searchParams.has('t') ||
+    requestUrl.searchParams.has('v')
+  ) {
     return
   }
 

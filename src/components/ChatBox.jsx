@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { 
   initSocket, 
-  getSocket,
   sendMessage as sendSocketMessage,
   onMessageReceived,
   joinGroup,
@@ -107,7 +106,7 @@ export default function ChatBox({ groupId, theme = 'dark' }) {
         if (isCancelled) return
 
         setIsConnected(true)
-        joinGroup(groupId, currentUser.uid)
+        joinGroup(groupId)
         hasJoinedGroup = true
       } catch (error) {
         console.error('Erreur socket.io:', error)
@@ -118,7 +117,7 @@ export default function ChatBox({ groupId, theme = 'dark' }) {
       isCancelled = true
 
       if (hasJoinedGroup) {
-        leaveGroup(groupId, currentUser.uid)
+        leaveGroup(groupId)
       }
     }
   }, [currentUser?.uid, groupId, loading])
@@ -182,17 +181,12 @@ export default function ChatBox({ groupId, theme = 'dark' }) {
       })
 
       // Envoyer via Socket.io (temps réel à tous)
-      sendSocketMessage(
-        groupId,
-        newMessage,
-        currentUser.uid,
-        userData?.username || 'Utilisateur'
-      )
+      sendSocketMessage(groupId, newMessage)
 
       setNewMessage('')
 
       // Arrêter d'afficher l'indicateur de saisie
-      sendTyping(groupId, currentUser.uid, userData?.username, false)
+      sendTyping(groupId, false)
     } catch (error) {
       console.error('Erreur:', error)
       alert('❌ Erreur lors de l\'envoi du message')
@@ -204,12 +198,12 @@ export default function ChatBox({ groupId, theme = 'dark' }) {
 
     // Envoyer l'indicateur de saisie
     if (currentUser?.uid) {
-      sendTyping(groupId, currentUser.uid, userData?.username, true)
+      sendTyping(groupId, true)
 
       // Arrêter après 1 seconde d'inactivité
       clearTimeout(typingTimeoutRef.current)
       typingTimeoutRef.current = setTimeout(() => {
-        sendTyping(groupId, currentUser.uid, userData?.username, false)
+        sendTyping(groupId, false)
       }, 1000)
     }
   }
